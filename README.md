@@ -91,6 +91,34 @@ Then remove the `set -g @plugin 'Ataraxy-Labs/opensessions'` line from `~/.tmux.
 - `prefix o → s` and `prefix o → t` for sidebar focus and toggle, `prefix o → e` for sidebar-safe `even-horizontal` layout in the current window, `prefix o → 1` through `9` for quick switching, optional no-prefix shortcuts, and in-app theme switching.
 - Native Rust sidebar built with ratatui 0.30 and crossterm 0.29, with a local Rust WebSocket/HTTP server.
 
+## Fork Additions
+
+This fork makes agents the primary list and adds remote agents and a picker.
+
+- **Agents first.** Each live agent is a row (`<status> <name>`, then its session). Names come from native metadata: Codex `session_index.jsonl`, Claude `/rename` and automatic titles, useful pane titles. Overrides go through `GET /api/agents` and `POST /api/agent-name`.
+- **Real active highlight.** When the sidebar is not focused it always highlights the agent you are in. Hover, arrows and `Tab` only move the highlight while it has focus. Enter or click jumps straight to the agent's pane in one tmux command, flashing only the destination.
+- **Instant width.** A guarded tmux-native `window-layout-changed` hook keeps the sidebar width, with no shell or HTTP round-trip.
+- **Needs input.** Agents waiting on a question, plan approval or permission prompt show a red `?` and `needs input`. The state comes from agent hooks writing the tmux pane option `@opensessions_state`.
+- **Remote agents.** Hosts listed in `~/.config/opensessions/remotes.json` (`{"hosts": ["devbox"]}`) are polled over non-interactive ssh, and only while a local pane runs `ssh <host>`. Each remote tmux agent appears with its location (`devbox · 1:feature`). Jumping selects the local ssh pane and then the right remote window and pane. Unreachable hosts are skipped silently.
+- **Agent picker.** `scripts/agents/agent-pick` is an fzf popup of live agents, with agents needing input first and the rest by recency.
+
+### Helper setup
+
+Run on each machine that runs agents (local and remote hosts):
+
+```sh
+install -m 755 scripts/agents/opensessions-agent-state ~/.local/bin/
+python3 scripts/agents/install-claude-hooks.py   # backs up ~/.claude/settings.json first
+```
+
+Claude loads hooks at session start, so restart running agents afterwards. Agents without hooks fall back to `~/.ai/sessions` bindings if present.
+
+Picker binding (`prefix a`) for `~/.tmux.conf`:
+
+```tmux
+bind a run-shell "tmux display-popup -c '#{client_name}' -E \"$HOME/.tmux/plugins/opensessions/scripts/agents/agent-pick --client '#{client_name}'\""
+```
+
 ## Programmatic API
 
 Scripts and agents can push custom metadata to the sidebar over HTTP — no binary needed:

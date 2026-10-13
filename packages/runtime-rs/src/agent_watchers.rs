@@ -63,6 +63,7 @@ pub fn claude_code_snapshot_from_jsonl(
     let mut thread_name = None;
     let mut last_user_prompt = None;
     let mut last_entry_is_tool_use = false;
+    let mut pending_questions: Vec<String> = Vec::new();
     let mut saw_entry = false;
 
     for line in raw.lines().filter(|line| !line.trim().is_empty()) {
@@ -75,7 +76,9 @@ pub fn claude_code_snapshot_from_jsonl(
             thread_name = Some(custom_title);
             continue;
         }
+        track_claude_interactive_tools(&entry, &mut pending_questions);
         if let Some(prompt) = extract_claude_user_prompt(&entry) {
+            pending_questions.clear();
             if thread_name.is_none() {
                 thread_name = normalize_thread_name(&prompt);
             }
@@ -93,8 +96,22 @@ pub fn claude_code_snapshot_from_jsonl(
     }
 
     let idle_for = now_ms.saturating_sub(mtime_ms);
+    // A question or plan approval waits on the user indefinitely: it is never stale.
+    if !pending_questions.is_empty() && status == AgentStatus::Running {
+        return Some(AgentWatcherSnapshot {
+            agent: "claude-code",
+            thread_id: Some(thread_id.to_string()),
+            thread_name,
+            last_user_prompt,
+            project_dir: Some(project_dir.to_string()),
+            status: AgentStatus::Waiting,
+            ts: mtime_ms,
+        });
+    }
+    // A slow tool is still working. Real input waits come from tracked
+    // question/plan calls and from the `ai hook` needs_input binding.
     if status == AgentStatus::Running && last_entry_is_tool_use && idle_for >= TOOL_USE_WAIT_MS {
-        status = AgentStatus::Waiting;
+        status = AgentStatus::ToolRunning;
     }
     if matches!(status, AgentStatus::Running | AgentStatus::Waiting) && idle_for >= STUCK_MS {
         status = AgentStatus::Stale;
@@ -154,8 +171,10 @@ pub fn codex_snapshot_from_jsonl(
     }
 
     let idle_for = now_ms.saturating_sub(mtime_ms);
+    // A slow tool is still working. Real input waits come from tracked
+    // question/plan calls and from the `ai hook` needs_input binding.
     if status == AgentStatus::Running && last_entry_is_tool_call && idle_for >= TOOL_USE_WAIT_MS {
-        status = AgentStatus::Waiting;
+        status = AgentStatus::ToolRunning;
     }
     if matches!(status, AgentStatus::Running | AgentStatus::Waiting) && idle_for >= STUCK_MS {
         status = AgentStatus::Stale;
@@ -675,6 +694,37 @@ fn message_content_text(content: &Value) -> Option<String> {
     }
 }
 
+/// Claude tools that block on the user rather than on work.
+const CLAUDE_INTERACTIVE_TOOLS: &[&str] = &["AskUserQuestion", "ExitPlanMode"];
+
+/// Track ids of question/plan tool calls until their own `tool_result`
+/// arrives; parallel tool results must not hide a pending question.
+fn track_claude_interactive_tools(entry: &Value, pending: &mut Vec<String>) {
+    let Some(items) = entry.pointer("/message/content").and_then(Value::as_array) else {
+        return;
+    };
+    for item in items {
+        match item.get("type").and_then(Value::as_str) {
+            Some("tool_use")
+                if item
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .is_some_and(|name| CLAUDE_INTERACTIVE_TOOLS.contains(&name)) =>
+            {
+                if let Some(id) = item.get("id").and_then(Value::as_str) {
+                    pending.push(id.to_string());
+                }
+            }
+            Some("tool_result") => {
+                if let Some(id) = item.get("tool_use_id").and_then(Value::as_str) {
+                    pending.retain(|pending_id| pending_id != id);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 fn content_has_type(content: Option<&Value>, target_type: &str) -> bool {
     content.and_then(Value::as_array).is_some_and(|items| {
         items
@@ -708,6 +758,41 @@ fn is_uuid(candidate: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn claude_code_pending_question_stays_waiting_instead_of_stale() {
+        let raw = r#"
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Pick one"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"AskUserQuestion","input":{}}],"stop_reason":"tool_use"}}
+"#;
+        // A parallel tool's result landing after the question must not hide it.
+        let parallel = format!(
+            "{raw}{}\n",
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t0","content":"bg"}]}}"#
+        );
+        let snapshot =
+            claude_code_snapshot_from_jsonl("thread", "/repo", &parallel, 1_000, 1_000 + 600_000)
+                .expect("snapshot");
+        assert_eq!(snapshot.status, AgentStatus::Waiting);
+        let answered = format!(
+            "{parallel}{}\n",
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"A"}]}}"#
+        );
+        let snapshot =
+            claude_code_snapshot_from_jsonl("thread", "/repo", &answered, 1_000, 1_000 + 600_000)
+                .expect("snapshot");
+        assert_ne!(snapshot.status, AgentStatus::Waiting);
+        let snapshot =
+            claude_code_snapshot_from_jsonl("thread", "/repo", raw, 1_000, 1_000 + 600_000)
+                .expect("snapshot");
+        assert_eq!(snapshot.status, AgentStatus::Waiting);
+
+        let bash = raw.replace("AskUserQuestion", "Bash");
+        let snapshot =
+            claude_code_snapshot_from_jsonl("thread", "/repo", &bash, 1_000, 1_000 + 600_000)
+                .expect("snapshot");
+        assert_eq!(snapshot.status, AgentStatus::ToolRunning);
+    }
 
     #[test]
     fn claude_code_snapshot_tracks_latest_real_user_prompt() {

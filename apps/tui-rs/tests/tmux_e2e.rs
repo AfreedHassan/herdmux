@@ -330,7 +330,7 @@ fn tmux_sidebar_tracks_agent_state_per_focused_pane() {
     lab.focus_agent_pane("opensessions", "amp", "seen-thread", &seen_pane);
 
     lab.wait_for_capture_pane(&sidebar, |text| {
-        row_with(text, "opensessions").is_some_and(|row| row.contains("◉ ● ✓"))
+        row_with(text, "opensessions").is_some_and(|row| row.contains("? ● ✓"))
     });
 }
 
@@ -716,7 +716,14 @@ fn tmux_sidebar_width_survives_flat_three_pane_layout_churn() {
         "expected sidebar | pane1 | pane2 before churn; got {content_panes:?}"
     );
     lab.tmux_ok(["kill-pane", "-t", content_panes[0].as_str()]);
-    let immediate_width = lab.sidebar_width("opensessions");
+    // The tmux-native layout hook runs from tmux's notification queue, so
+    // allow one short settle window rather than a same-instant read.
+    let settle = Instant::now() + Duration::from_millis(200);
+    let mut immediate_width = lab.sidebar_width("opensessions");
+    while immediate_width != Some(36) && Instant::now() < settle {
+        sleep(Duration::from_millis(10));
+        immediate_width = lab.sidebar_width("opensessions");
+    }
     assert_eq!(
         immediate_width,
         Some(36),
@@ -1280,10 +1287,40 @@ time.sleep(300)
         window_index
     }
 
+    /// Agent panes must run a process the server recognises as an agent:
+    /// shell panes with only an agent-like title are deliberately ignored
+    /// (stale titles). Build a tiny `amp` executable that just idles.
+    fn fake_agent_bin(&self, agent: &str) -> PathBuf {
+        let dir = self.root.join("fake-agents");
+        let bin = dir.join(agent);
+        if !bin.exists() {
+            fs::create_dir_all(&dir).expect("create fake agent dir");
+            let source = dir.join(format!("{agent}.c"));
+            fs::write(&source, "#include <unistd.h>\nint main(void){for(;;)pause();}\n")
+                .expect("write fake agent source");
+            let status = Command::new("cc")
+                .arg("-o")
+                .arg(&bin)
+                .arg(&source)
+                .status()
+                .expect("compile fake agent");
+            assert!(status.success(), "failed to compile fake {agent} binary");
+        }
+        bin
+    }
+
     fn spawn_agent_pane(&self, session: &str, title: &str) -> String {
+        let agent = title
+            .split(" - ")
+            .nth(1)
+            .map(str::trim)
+            .filter(|agent| !agent.is_empty())
+            .unwrap_or("amp");
+        let bin = self.fake_agent_bin(agent);
         let command = format!(
-            "sh -c 'printf \"\\033]2;{}\\033\\\\\"; while :; do sleep 60; done'",
-            title.replace('"', "")
+            "sh -c 'printf \"\\033]2;{}\\033\\\\\"; exec {}'",
+            title.replace('"', ""),
+            bin.display()
         );
         let pane = self.tmux([
             "split-window",
@@ -1981,14 +2018,25 @@ time.sleep(300)
     }
 
     fn assert_width_hooks_are_well_quoted(&self) {
-        let hooks = self.tmux(["show-hooks", "-g"]);
+        // window-layout-changed is a window hook, so `show-hooks -g` omits it.
+        let hooks = format!(
+            "{}\n{}",
+            self.tmux(["show-hooks", "-g"]),
+            self.tmux(["show-hooks", "-gw"])
+        );
         assert!(
             hooks.contains("@opensessions_width"),
             "width hooks were not installed; hooks:\n{hooks}"
         );
+        let layout_hook = hooks
+            .lines()
+            .find(|line| line.starts_with("window-layout-changed"))
+            .unwrap_or_else(|| panic!("tmux-native width hook missing; hooks:\n{hooks}"));
         assert!(
-            hooks.contains("$(tmux") && hooks.contains("show-option -gqv @opensessions_width"),
-            "width repair hook must read the target width at execution time; hooks:\n{hooks}"
+            layout_hook.contains("-x #{@opensessions_width}")
+                && layout_hook.contains("#{@opensessions_layout}")
+                && !layout_hook.contains("show-option -gqv"),
+            "width hook must read the width at execution time without a shell; hook:\n{layout_hook}"
         );
         assert!(
             !hooks.contains("case  in") && !hooks.contains("[ -n  ]") && !hooks.contains("-t  -x"),

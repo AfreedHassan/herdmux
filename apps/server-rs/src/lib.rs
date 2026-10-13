@@ -30,7 +30,7 @@ use opensessions_runtime::project_dir_session::{
 };
 use opensessions_runtime::protocol::{
     AgentEvent, AgentLiveness, AgentPanelScope, AgentStatus, MetadataTone, ServerMessage,
-    SessionFilterMode,
+    ServerState, SessionFilterMode,
 };
 use opensessions_runtime::server_state::{ReadOnlyStateInput, build_read_only_state};
 use opensessions_runtime::session_order::SessionOrder;
@@ -49,6 +49,11 @@ use tokio::task::JoinHandle;
 use tokio::time::{Duration, MissedTickBehavior};
 use tokio_websockets::{Message, ServerBuilder};
 
+mod agent_names;
+mod remote_agents;
+pub use agent_names::AgentNameError;
+use agent_names::AgentNameStore;
+
 pub const SERVER_VERSION: &str = "0.2.0-alpha.12";
 pub const PROTOCOL_VERSION: u16 = 1;
 pub const HELLO_JSON: &str = r#"{"type":"hello","protocol":1,"serverVersion":"0.2.0-alpha.12"}"#;
@@ -65,6 +70,7 @@ const TMUX_STATE_POLL_MS: u64 = 2_000;
 const SIDEBAR_WARMUP_MS: u64 = 1_200;
 const SERVER_SHUTDOWN_DRAIN_MS: u64 = 120;
 const AGENT_WATCHER_RECENT_MS: u64 = 5 * 60 * 1000;
+const AGENT_FOCUS_COOLDOWN_MS: u64 = 500;
 const OPENCODE_SQL_TIMEOUT_MS: u64 = 500;
 const OPENCODE_SQL_SEP: char = '\u{1f}';
 const DEFAULT_DETAIL_PANEL_HEIGHT: u16 = 10;
@@ -116,6 +122,13 @@ fn debug_log(line: impl AsRef<str>) {
 
 pub trait StateSource: Send + Sync + 'static {
     fn snapshot_json(&self) -> String;
+    fn cached_snapshot_json(&self) -> Option<String> {
+        None
+    }
+
+    fn sender_agent_focus_json(&self, _context: &ClientConnectionContext) -> Option<String> {
+        None
+    }
 
     fn setup_mux_hooks(&self, _server_host: &str, _server_port: u16) {}
 
@@ -171,6 +184,14 @@ pub trait StateSource: Send + Sync + 'static {
 
     fn handle_agent_event_json(&self, _body: &Value) -> Result<String, AgentEventError> {
         Err(AgentEventError::CouldNotResolveSession)
+    }
+
+    fn agent_list_json(&self) -> Result<Value, AgentNameError> {
+        Err(AgentNameError::unavailable())
+    }
+
+    fn rename_agent_json(&self, _body: &Value) -> Result<(Value, Option<String>), AgentNameError> {
+        Err(AgentNameError::unavailable())
     }
 
     fn handle_pi_runtime_upsert(&self, _body: &Value) -> Result<(), PiRuntimeError> {
@@ -343,6 +364,8 @@ struct CachedPortSnapshot {
 
 pub struct ReadOnlyMuxStateSource {
     providers: Vec<Arc<dyn MuxProvider>>,
+    remote_hosts: Vec<String>,
+    remote_inventory: Mutex<remote_agents::RemoteInventory>,
     port_command_runner: Arc<dyn PortCommandRunner>,
     port_snapshot_cache: Mutex<Option<CachedPortSnapshot>>,
     git_command_runner: Arc<dyn GitCommandRunner>,
@@ -355,15 +378,88 @@ pub struct ReadOnlyMuxStateSource {
     agent_panel_scope: Mutex<AgentPanelScope>,
     focused_session: Mutex<Option<String>>,
     focused_pane_by_session: Mutex<HashMap<String, String>>,
+    last_explicit_agent_focus: Mutex<Option<(String, String, Instant)>>,
     focused_client_tty: Mutex<Option<String>>,
+    agent_focus_by_client: Mutex<HashMap<Option<String>, (String, String)>>,
+    last_focus_hook_by_client: Mutex<HashMap<Option<String>, (String, String)>>,
     theme: Mutex<Option<String>>,
     session_filter: Mutex<Option<SessionFilterMode>>,
     collapsed_worktree_groups: Mutex<HashSet<String>>,
     session_order: Mutex<SessionOrder>,
     metadata_store: Mutex<SessionMetadataStore>,
     agent_tracker: Mutex<AgentTracker>,
+    confirmed_agent_panes: Mutex<HashMap<String, Vec<PanePresenceInput>>>,
+    confirmed_inventory_ready: AtomicBool,
+    agent_names: Mutex<AgentNameStore>,
+    cached_snapshot: Mutex<Option<ServerState>>,
     pi_runtime_registry: Mutex<PiRuntimeRegistry>,
     now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
+}
+
+fn default_agent_name_store() -> AgentNameStore {
+    #[cfg(test)]
+    {
+        AgentNameStore::memory()
+    }
+    #[cfg(not(test))]
+    {
+        AgentNameStore::unavailable()
+    }
+}
+
+fn agents_with_live_panes(
+    session: &str,
+    tracked: Vec<AgentEvent>,
+    panes: &[PanePresenceInput],
+) -> Vec<AgentEvent> {
+    let mut seen = HashSet::new();
+    let mut agents = panes
+        .iter()
+        .filter(|pane| seen.insert((pane.agent.as_str(), pane.pane_id.as_str())))
+        .map(|pane| {
+            let mut event = tracked
+                .iter()
+                .filter(|event| {
+                    event.agent == pane.agent
+                        && event.pane_id.as_deref() == Some(&pane.pane_id)
+                        && event.liveness == Some(AgentLiveness::Alive)
+                        && pane
+                            .thread_id
+                            .as_deref()
+                            .is_none_or(|thread| event.thread_id.as_deref() == Some(thread))
+                })
+                .max_by_key(|event| event.ts)
+                .cloned()
+                .unwrap_or_else(|| AgentEvent {
+                    agent: pane.agent.clone(),
+                    session: session.to_string(),
+                    status: AgentStatus::Idle,
+                    ts: 0,
+                    thread_id: pane.thread_id.clone(),
+                    thread_name: pane.thread_name.clone(),
+                    last_user_prompt: None,
+                    unseen: None,
+                    pane_id: Some(pane.pane_id.clone()),
+                    liveness: Some(AgentLiveness::Alive),
+                    location: None,
+                });
+            if let Some(title) = pane
+                .thread_name
+                .as_ref()
+                .filter(|title| !title.trim().is_empty())
+            {
+                event.thread_name = Some(title.clone());
+            }
+            // Hook-reported questions/permission prompts beat transcript
+            // heuristics: Claude writes the question only after it is answered.
+            if pane.needs_input {
+                event.status = AgentStatus::Waiting;
+            }
+            event
+        })
+        .collect::<Vec<_>>();
+    agents.extend(tracked.into_iter().filter(|event| event.liveness.is_none()));
+    agents
 }
 
 pub fn default_state_source_from_env(
@@ -372,14 +468,35 @@ pub fn default_state_source_from_env(
     if env("TMUX").is_some() {
         let provider = Arc::new(TmuxProvider::new(Arc::new(StdCommandRunner::default())));
         let mut source = ReadOnlyMuxStateSource::new(vec![provider]);
-        let config = env("HOME")
-            .map(PathBuf::from)
-            .map(|home| load_config_from_home(&home));
+        let home = env("HOME").map(PathBuf::from);
+        let config = home.as_deref().map(load_config_from_home);
+        source.remote_hosts = home
+            .as_deref()
+            .map(remote_agents::load_hosts)
+            .unwrap_or_default();
+        let names_file = opensessions_runtime::shared::resolve_server_key(&env)
+            .and_then(|key| key.parse::<u16>().ok())
+            .map(|key| format!("agent-names.{key}.json"))
+            .unwrap_or_else(|| "agent-names.default.json".to_string());
+        source.agent_names = Mutex::new(
+            home.map(|home| {
+                AgentNameStore::load(home.join(".config/opensessions").join(names_file))
+            })
+            .unwrap_or_else(AgentNameStore::unavailable),
+        );
         if let Some(width) = config.as_ref().and_then(|config| config.sidebar_width) {
             source = source.with_sidebar_width(clamp_sidebar_width(width) as u32);
         }
-        if let Some(height) = config.and_then(|config| config.detail_panel_height) {
+        if let Some(height) = config
+            .as_ref()
+            .and_then(|config| config.detail_panel_height)
+        {
             source = source.with_detail_panel_height(height);
+        }
+        source.session_filter =
+            Mutex::new(config.as_ref().and_then(|config| config.session_filter));
+        if let Some(scope) = config.and_then(|config| config.agent_panel_scope) {
+            source.agent_panel_scope = Mutex::new(scope);
         }
         return Some(source);
     }
@@ -400,13 +517,22 @@ impl ReadOnlyMuxStateSource {
             agent_panel_scope: Mutex::new(AgentPanelScope::Current),
             focused_session: Mutex::new(None),
             focused_pane_by_session: Mutex::new(HashMap::new()),
+            last_explicit_agent_focus: Mutex::new(None),
             focused_client_tty: Mutex::new(None),
+            agent_focus_by_client: Mutex::new(HashMap::new()),
+            last_focus_hook_by_client: Mutex::new(HashMap::new()),
             theme: Mutex::new(None),
             session_filter: Mutex::new(None),
             collapsed_worktree_groups: Mutex::new(HashSet::new()),
             session_order: Mutex::new(SessionOrder::new(None)),
             metadata_store: Mutex::new(SessionMetadataStore::new()),
             agent_tracker: Mutex::new(AgentTracker::new()),
+            confirmed_agent_panes: Mutex::new(HashMap::new()),
+            confirmed_inventory_ready: AtomicBool::new(false),
+            remote_hosts: Vec::new(),
+            remote_inventory: Mutex::new(remote_agents::RemoteInventory::default()),
+            agent_names: Mutex::new(default_agent_name_store()),
+            cached_snapshot: Mutex::new(None),
             pi_runtime_registry: Mutex::new(PiRuntimeRegistry::with_default_ttl()),
             now_ms: Arc::new(current_time_ms),
         }
@@ -491,6 +617,7 @@ impl ReadOnlyMuxStateSource {
     fn sync_agent_pane_presence(&self) -> bool {
         let mut presence_by_session = Vec::new();
         let mut focused_agent_panes = HashMap::<String, String>::new();
+        let mut client_agent_focus = Vec::new();
         let focused_client_tty = self.focused_client_tty.lock().unwrap().clone();
         for provider in &self.providers {
             let client_focus = provider.get_client_focus(focused_client_tty.as_deref());
@@ -503,6 +630,12 @@ impl ReadOnlyMuxStateSource {
                             focus.session_name == session.name && focus.pane_id == pane.pane_id
                         }) {
                             focused_agent_panes.insert(session.name.clone(), pane.pane_id.clone());
+                            if let Some(focus) = &client_focus {
+                                client_agent_focus.push((
+                                    focus.client_tty.clone(),
+                                    (session.name.clone(), pane.pane_id.clone()),
+                                ));
+                            }
                         }
                         PanePresenceInput {
                             agent: pane.agent,
@@ -510,6 +643,7 @@ impl ReadOnlyMuxStateSource {
                             active: pane.active,
                             thread_id: pane.thread_id,
                             thread_name: pane.thread_name,
+                            needs_input: pane.needs_input,
                         }
                     })
                     .collect::<Vec<_>>();
@@ -523,6 +657,15 @@ impl ReadOnlyMuxStateSource {
             }
         }
 
+        *self.confirmed_agent_panes.lock().unwrap() = presence_by_session.iter().cloned().collect();
+        self.confirmed_inventory_ready
+            .store(true, Ordering::Release);
+        for (tty, focus) in client_agent_focus {
+            self.agent_focus_by_client
+                .lock()
+                .unwrap()
+                .insert(tty, focus);
+        }
         let mut changed = false;
         let mut tracker = self.agent_tracker.lock().unwrap();
         for (session, pane_agents) in presence_by_session {
@@ -593,6 +736,45 @@ impl ReadOnlyMuxStateSource {
         ));
         changed
     }
+
+    /// Local agent panes plus ssh panes proxying remote agents.
+    fn is_agent_focus_pane(&self, session: &str, pane: &str) -> bool {
+        self.is_confirmed_agent_pane(session, pane)
+            || self
+                .remote_inventory
+                .lock()
+                .unwrap()
+                .proxy_panes
+                .contains(pane)
+    }
+
+    fn remote_active_thread(&self, pane: &str) -> Option<String> {
+        self.remote_inventory
+            .lock()
+            .unwrap()
+            .active_thread_by_proxy
+            .get(pane)
+            .cloned()
+    }
+
+    fn is_confirmed_agent_pane(&self, session: &str, pane: &str) -> bool {
+        self.confirmed_agent_panes
+            .lock()
+            .unwrap()
+            .get(session)
+            .is_some_and(|panes| panes.iter().any(|live| live.pane_id == pane))
+    }
+
+    fn remember_agent_focus(&self, tty: Option<String>, session: &str, pane: &str) {
+        self.agent_focus_by_client
+            .lock()
+            .unwrap()
+            .insert(tty.clone(), (session.to_string(), pane.to_string()));
+        self.last_focus_hook_by_client
+            .lock()
+            .unwrap()
+            .insert(tty, (session.to_string(), pane.to_string()));
+    }
 }
 
 impl StateSource for ReadOnlyMuxStateSource {
@@ -622,6 +804,11 @@ impl StateSource for ReadOnlyMuxStateSource {
                 shutdown.clone(),
             )),
             tokio::spawn(run_sidebar_lifecycle_loop(
+                self.clone(),
+                state_updates.clone(),
+                shutdown.clone(),
+            )),
+            tokio::spawn(run_remote_agent_loop(
                 self.clone(),
                 state_updates.clone(),
                 shutdown.clone(),
@@ -658,14 +845,32 @@ impl StateSource for ReadOnlyMuxStateSource {
                 .as_ref()
                 .map(|names| {
                     let tracker = self.agent_tracker.lock().unwrap();
+                    let confirmed_panes = self.confirmed_agent_panes.lock().unwrap();
                     let mut states = HashMap::new();
                     let mut agents = HashMap::new();
                     let mut timestamps = HashMap::new();
+                    let remote = self.remote_inventory.lock().unwrap();
                     for name in names {
-                        if let Some(state) = tracker.get_state(name) {
+                        let mut session_agents = agents_with_live_panes(
+                            name,
+                            tracker.get_agents(name),
+                            confirmed_panes
+                                .get(name)
+                                .map(Vec::as_slice)
+                                .unwrap_or_default(),
+                        );
+                        if let Some(remote_agents) = remote.agents_by_session.get(name) {
+                            session_agents.extend(remote_agents.iter().cloned());
+                        }
+                        if let Some(state) = session_agents
+                            .iter()
+                            .filter(|agent| agent.liveness == Some(AgentLiveness::Alive))
+                            .max_by_key(|agent| agent.ts)
+                            .cloned()
+                            .or_else(|| tracker.get_state(name))
+                        {
                             states.insert(name.clone(), state);
                         }
-                        let session_agents = tracker.get_agents(name);
                         if !session_agents.is_empty() {
                             agents.insert(name.clone(), session_agents);
                         }
@@ -683,7 +888,7 @@ impl StateSource for ReadOnlyMuxStateSource {
             "snapshot_json mode={} init={} width={}",
             sidebar_state.mode, sidebar_state.initializing, sidebar_state.width,
         ));
-        let state = build_read_only_state(ReadOnlyStateInput {
+        let mut state = build_read_only_state(ReadOnlyStateInput {
             providers,
             visible_session_names,
             metadata_by_session,
@@ -713,7 +918,43 @@ impl StateSource for ReadOnlyMuxStateSource {
             now_ms: (self.now_ms)(),
         });
 
+        *self.cached_snapshot.lock().unwrap() = Some(state.clone());
+        let live_agents = self.cached_live_agents();
+        let mut names = self.agent_names.lock().unwrap();
+        if let Ok(live_agents) = live_agents {
+            if let Err(error) = names.observe(&live_agents) {
+                debug_log(format!("agent-name observation failed: {}", error.code));
+            }
+        }
+        names.overlay_state(&mut state);
         serde_json::to_string(&ServerMessage::State(state)).expect("state must serialize")
+    }
+
+    fn cached_snapshot_json(&self) -> Option<String> {
+        let mut state = self.cached_snapshot.lock().unwrap().clone()?;
+        self.agent_names.lock().unwrap().overlay_state(&mut state);
+        Some(serde_json::to_string(&ServerMessage::State(state)).expect("state must serialize"))
+    }
+
+    fn sender_agent_focus_json(&self, context: &ClientConnectionContext) -> Option<String> {
+        let (session, pane) = self
+            .agent_focus_by_client
+            .lock()
+            .unwrap()
+            .get(&context.client_tty)
+            .cloned()?;
+        if context.session_name.as_deref() != Some(session.as_str())
+            || !self.is_agent_focus_pane(&session, &pane)
+        {
+            return None;
+        }
+        let thread = self.remote_active_thread(&pane);
+        Some(activate_agent_pane_json(
+            session,
+            &pane,
+            context.client_tty.as_deref(),
+            thread.as_deref(),
+        ))
     }
 
     fn begin_shutdown(&self) -> Option<String> {
@@ -855,23 +1096,53 @@ impl StateSource for ReadOnlyMuxStateSource {
                 let thread_id = command.get("threadId").and_then(Value::as_str);
                 let thread_name = command.get("threadName").and_then(Value::as_str);
                 let pane_id = command.get("paneId").and_then(Value::as_str);
-                let mut seen_changed = self
-                    .agent_tracker
-                    .lock()
-                    .unwrap()
-                    .mark_agent_seen(session, agent, thread_id, pane_id);
                 if let Some((provider, pane_id)) =
                     self.resolve_agent_pane(session, agent, thread_id, thread_name, pane_id)
                 {
-                    seen_changed = self.agent_tracker.lock().unwrap().mark_agent_seen(
+                    self.agent_tracker.lock().unwrap().mark_agent_seen(
                         session,
                         agent,
                         thread_id,
                         Some(&pane_id),
-                    ) || seen_changed;
-                    provider.focus_pane(&pane_id);
+                    );
+                    let tty = command
+                        .get("clientTty")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                        .or_else(|| context.and_then(|context| context.client_tty.clone()));
+                    if self.should_focus_agent_pane(session, &pane_id) {
+                        provider.reveal_pane(&pane_id, tty.as_deref());
+                        // Remote agent: also pick its window/pane inside the host's tmux.
+                        let remote = thread_id.and_then(|thread| {
+                            self.remote_inventory
+                                .lock()
+                                .unwrap()
+                                .remote_targets
+                                .get(thread)
+                                .cloned()
+                        });
+                        if let Some((host, remote_pane)) = remote {
+                            remote_agents::select_remote_pane(&host, &remote_pane);
+                            // Optimistic: the next poll confirms the remote selection.
+                            if let Some(thread) = thread_id {
+                                self.remote_inventory
+                                    .lock()
+                                    .unwrap()
+                                    .active_thread_by_proxy
+                                    .insert(pane_id.clone(), thread.to_string());
+                            }
+                        }
+                    }
+                    self.remember_agent_focus(tty.clone(), session, &pane_id);
+                    let thread = self.remote_active_thread(&pane_id);
+                    return Some(activate_agent_pane_json(
+                        session.to_string(),
+                        &pane_id,
+                        tty.as_deref(),
+                        thread.as_deref(),
+                    ));
                 }
-                seen_changed.then(|| self.snapshot_json())
+                None
             }
             "kill-agent-pane" => {
                 let session = command.get("session")?.as_str()?;
@@ -882,9 +1153,24 @@ impl StateSource for ReadOnlyMuxStateSource {
                 if let Some((provider, pane_id)) =
                     self.resolve_agent_pane(session, agent, thread_id, thread_name, pane_id)
                 {
+                    // A remote agent's pane is the local ssh session: never kill it.
+                    if self.remote_inventory.lock().unwrap().proxy_panes.contains(&pane_id) {
+                        return None;
+                    }
                     provider.kill_pane(&pane_id);
                 }
                 None
+            }
+            "dismiss-agent" => {
+                let session = command.get("session")?.as_str()?;
+                let agent = command.get("agent")?.as_str()?;
+                let thread_id = command.get("threadId").and_then(Value::as_str);
+                let changed = self
+                    .agent_tracker
+                    .lock()
+                    .unwrap()
+                    .dismiss(session, agent, thread_id);
+                changed.then(|| self.snapshot_json())
             }
             _ => None,
         }
@@ -935,6 +1221,7 @@ impl StateSource for ReadOnlyMuxStateSource {
             }
         }
         let client_tty = self.providers.first()?.get_client_tty();
+        context.client_tty = Some(client_tty.clone());
         Some(format!(
             r#"{{"type":"your-session","name":{},"clientTty":{}}}"#,
             json_string_or_null(Some(session_name)),
@@ -1015,6 +1302,26 @@ impl StateSource for ReadOnlyMuxStateSource {
         Ok(self.snapshot_json())
     }
 
+    fn agent_list_json(&self) -> Result<Value, AgentNameError> {
+        let agents = self.cached_live_agents()?;
+        let mut names = self.agent_names.lock().unwrap();
+        names.observe(&agents)?;
+        Ok(names.list(&agents))
+    }
+
+    fn rename_agent_json(&self, body: &Value) -> Result<(Value, Option<String>), AgentNameError> {
+        let agents = self.cached_live_agents()?;
+        let cached = self.cached_snapshot.lock().unwrap().clone();
+        let mut names = self.agent_names.lock().unwrap();
+        names.observe(&agents)?;
+        let result = names.rename(&agents, body)?;
+        let snapshot = cached.map(|mut state| {
+            names.overlay_state(&mut state);
+            serde_json::to_string(&ServerMessage::State(state)).expect("state must serialize")
+        });
+        Ok((result, snapshot))
+    }
+
     fn handle_pi_runtime_upsert(&self, body: &Value) -> Result<(), PiRuntimeError> {
         let info =
             parse_pi_runtime_info(body, (self.now_ms)()).ok_or(PiRuntimeError::InvalidPayload)?;
@@ -1037,10 +1344,36 @@ impl StateSource for ReadOnlyMuxStateSource {
             return None;
         }
         let context = parse_context(body)?;
+        if context.pane_active == Some(false) {
+            return None;
+        }
+        let pane = context.pane_id.as_deref()?;
+        let focus = (context.session.clone(), pane.to_string());
+        if self
+            .last_focus_hook_by_client
+            .lock()
+            .unwrap()
+            .insert(context.client_tty.clone(), focus.clone())
+            .as_ref()
+            == Some(&focus)
+        {
+            return None;
+        }
         let name = context.session.clone();
         *self.focused_session.lock().unwrap() = Some(name.clone());
-        if self.remember_focused_pane(&context) {
-            return Some(self.snapshot_json());
+        self.remember_focused_pane(&context);
+        if self.is_agent_focus_pane(&name, pane) {
+            self.agent_focus_by_client
+                .lock()
+                .unwrap()
+                .insert(context.client_tty.clone(), focus);
+            let thread = self.remote_active_thread(pane);
+            return Some(activate_agent_pane_json(
+                name,
+                pane,
+                context.client_tty.as_deref(),
+                thread.as_deref(),
+            ));
         }
         None
     }
@@ -1094,6 +1427,133 @@ impl StateSource for ReadOnlyMuxStateSource {
 }
 
 impl ReadOnlyMuxStateSource {
+    fn should_focus_agent_pane(&self, session: &str, pane: &str) -> bool {
+        let mut last = self.last_explicit_agent_focus.lock().unwrap();
+        let repeated = last
+            .as_ref()
+            .is_some_and(|(previous_session, previous_pane, at)| {
+                previous_session == session
+                    && previous_pane == pane
+                    && at.elapsed() < std::time::Duration::from_millis(AGENT_FOCUS_COOLDOWN_MS)
+            });
+        if repeated {
+            return false;
+        }
+        *last = Some((session.to_string(), pane.to_string(), Instant::now()));
+        true
+    }
+
+    /// Poll remote hosts and remap their agents onto local ssh panes.
+    /// Reports whether rows changed and which highlight events to send.
+    fn refresh_remote_agents(&self) -> RemoteRefresh {
+        let hosts = self.remote_hosts.clone();
+        let ttys = remote_agents::local_ssh_ttys(&hosts);
+        let mut proxies: HashMap<String, Vec<remote_agents::LocalSshPane>> = HashMap::new();
+        if !ttys.is_empty() {
+            for provider in &self.providers {
+                for (tty, pane_id, session) in provider.pane_ttys() {
+                    if let Some(host) = ttys.get(&tty) {
+                        proxies
+                            .entry(host.clone())
+                            .or_default()
+                            .push(remote_agents::LocalSshPane { pane_id, session });
+                    }
+                }
+            }
+        }
+        // Only hosts with a local ssh pane are worth an SSH round-trip.
+        let handles = hosts
+            .into_iter()
+            .filter(|host| proxies.contains_key(host))
+            .map(|host| {
+                std::thread::spawn(move || {
+                    let bindings = remote_agents::fetch_host(&host);
+                    (host, bindings)
+                })
+            })
+            .collect::<Vec<_>>();
+        let bindings = handles
+            .into_iter()
+            .filter_map(|handle| handle.join().ok())
+            .filter_map(|(host, bindings)| bindings.map(|bindings| (host, bindings)))
+            .collect::<HashMap<_, _>>();
+        let inventory = remote_agents::build_inventory(&bindings, &proxies, current_time_ms());
+        let mut current = self.remote_inventory.lock().unwrap();
+        let comparable = |inventory: &remote_agents::RemoteInventory| {
+            let mut rows = inventory
+                .agents_by_session
+                .values()
+                .flatten()
+                .map(|agent| {
+                    (
+                        agent.thread_id.clone(),
+                        agent.status,
+                        agent.thread_name.clone(),
+                        agent.location.clone(),
+                        agent.session.clone(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            rows.sort_by(|left, right| format!("{left:?}").cmp(&format!("{right:?}")));
+            rows
+        };
+        let changed = comparable(&current) != comparable(&inventory)
+            || current.proxy_panes != inventory.proxy_panes;
+        let moved = inventory
+            .active_thread_by_proxy
+            .iter()
+            .filter(|(pane, thread)| current.active_thread_by_proxy.get(*pane) != Some(*thread))
+            .map(|(pane, thread)| (pane.clone(), thread.clone()))
+            .collect::<Vec<_>>();
+        *current = inventory;
+        drop(current);
+        // Clients looking at a proxy pane follow the host's active agent.
+        let focus = self.agent_focus_by_client.lock().unwrap().clone();
+        let activations = moved
+            .iter()
+            .flat_map(|(pane, thread)| {
+                focus
+                    .iter()
+                    .filter(move |(_, (_, focused))| focused == pane)
+                    .map(move |(tty, (session, _))| {
+                        activate_agent_pane_json(session.clone(), pane, tty.as_deref(), Some(thread))
+                    })
+            })
+            .collect();
+        RemoteRefresh {
+            changed,
+            activations,
+        }
+    }
+
+    fn cached_live_agents(&self) -> Result<Vec<AgentEvent>, AgentNameError> {
+        if !self.confirmed_inventory_ready.load(Ordering::Acquire) {
+            return Err(AgentNameError::unavailable());
+        }
+        let tracker = self.agent_tracker.lock().unwrap();
+        let panes = self.confirmed_agent_panes.lock().unwrap();
+        let mut agents = panes
+            .iter()
+            .flat_map(|(session, panes)| {
+                agents_with_live_panes(session, tracker.get_agents(session), panes)
+            })
+            .filter(|agent| agent.liveness == Some(AgentLiveness::Alive))
+            .collect::<Vec<_>>();
+        agents.extend(
+            self.remote_inventory
+                .lock()
+                .unwrap()
+                .agents_by_session
+                .values()
+                .flatten()
+                .cloned(),
+        );
+        agents.sort_by(|left, right| {
+            (&left.session, &left.pane_id).cmp(&(&right.session, &right.pane_id))
+        });
+        Ok(agents)
+    }
+
     fn apply_agent_event(&self, body: &Value) -> Result<(), AgentEventError> {
         let agent = body
             .get("agent")
@@ -1139,6 +1599,7 @@ impl ReadOnlyMuxStateSource {
             unseen: None,
             liveness: pane_id.as_ref().map(|_| AgentLiveness::Alive),
             pane_id,
+            location: None,
         });
         if let Some(pane_id) = event_pane_id
             && self
@@ -1179,6 +1640,24 @@ impl ReadOnlyMuxStateSource {
             ));
             return false;
         };
+        let Some(provider) = self.provider_for_session(&session) else {
+            return false;
+        };
+        let Some(pane_id) = provider.resolve_agent_pane_id(
+            &session,
+            snapshot.agent,
+            snapshot.thread_id.as_deref(),
+            snapshot.thread_name.as_deref(),
+        ) else {
+            return false;
+        };
+        if !provider
+            .list_agent_panes(&session)
+            .iter()
+            .any(|pane| pane.pane_id == pane_id && pane.agent == snapshot.agent)
+        {
+            return false;
+        }
         let focused_pane = self
             .focused_pane_by_session
             .lock()
@@ -1204,8 +1683,9 @@ impl ReadOnlyMuxStateSource {
             thread_name: snapshot.thread_name.clone(),
             last_user_prompt: snapshot.last_user_prompt.clone(),
             unseen: None,
-            pane_id: None,
-            liveness: None,
+            pane_id: Some(pane_id),
+            liveness: Some(AgentLiveness::Alive),
+            location: None,
         };
         self.agent_tracker.lock().unwrap().apply_event(event);
         if let Some(pane_id) = focused_pane {
@@ -1279,7 +1759,13 @@ impl ReadOnlyMuxStateSource {
     ) -> Option<(Arc<dyn MuxProvider>, String)> {
         let provider = self.provider_for_session(session)?;
         if let Some(pane_id) = pane_id {
-            return Some((provider, pane_id.to_string()));
+            let confirmed = self.cached_live_agents().ok()?.into_iter().any(|live| {
+                live.session == session
+                    && live.agent == agent
+                    && live.pane_id.as_deref() == Some(pane_id)
+                    && thread_id.is_none_or(|thread| live.thread_id.as_deref() == Some(thread))
+            });
+            return confirmed.then(|| (provider, pane_id.to_string()));
         }
         self.sync_agent_pane_presence();
         if let Some(pane_id) = self.resolve_tracked_agent_pane(session, agent, thread_id) {
@@ -1684,7 +2170,10 @@ async fn run_sidebar_lifecycle_loop(
                 };
                 if changed {
                     debug_log("sidebar_lifecycle_loop: lifecycle changed, broadcasting fresh state");
-                    let _ = state_updates.send(source.snapshot_json());
+                    let worker_source = source.clone();
+                    if let Ok(snapshot) = tokio::task::spawn_blocking(move || worker_source.snapshot_json()).await {
+                        let _ = state_updates.send(snapshot);
+                    }
                 }
             }
         }
@@ -1695,6 +2184,46 @@ async fn run_sidebar_lifecycle_loop(
 /// the JSON differs from the last broadcast, so the sidebar picks up new
 /// sessions, agent panes, focus changes, and other mux state without requiring
 /// an explicit hook.
+struct RemoteRefresh {
+    changed: bool,
+    activations: Vec<String>,
+}
+
+/// Best-effort remote agent discovery; unreachable hosts are skipped.
+async fn run_remote_agent_loop(
+    source: Arc<ReadOnlyMuxStateSource>,
+    state_updates: broadcast::Sender<String>,
+    shutdown: broadcast::Sender<()>,
+) {
+    if source.remote_hosts.is_empty() {
+        return;
+    }
+    let mut shutdown_rx = shutdown.subscribe();
+    let mut interval =
+        tokio::time::interval(Duration::from_secs(remote_agents::REMOTE_POLL_SECS));
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            _ = shutdown_rx.recv() => return,
+            _ = interval.tick() => {
+                let worker = source.clone();
+                let Ok(refresh) = tokio::task::spawn_blocking(move || worker.refresh_remote_agents()).await else {
+                    continue;
+                };
+                if refresh.changed {
+                    let worker = source.clone();
+                    if let Ok(snapshot) = tokio::task::spawn_blocking(move || worker.snapshot_json()).await {
+                        let _ = state_updates.send(snapshot);
+                    }
+                }
+                for activation in refresh.activations {
+                    let _ = state_updates.send(activation);
+                }
+            }
+        }
+    }
+}
+
 async fn run_tmux_state_poll_loop(
     source: Arc<ReadOnlyMuxStateSource>,
     state_updates: broadcast::Sender<String>,
@@ -1705,14 +2234,7 @@ async fn run_tmux_state_poll_loop(
     let mut shutdown_rx = shutdown.subscribe();
     let mut interval = tokio::time::interval(Duration::from_millis(TMUX_STATE_POLL_MS));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    // Seed `last_hash` from the current state so the first tick does not
-    // broadcast an unprovoked snapshot. Subsequent broadcasts only happen
-    // when something other than `ts` actually changes.
-    let mut last_hash: u64 = {
-        let mut hasher = DefaultHasher::new();
-        strip_ts_field(&source.snapshot_json()).hash(&mut hasher);
-        hasher.finish()
-    };
+    let mut last_hash = None;
     loop {
         tokio::select! {
             _ = shutdown_rx.recv() => return,
@@ -1720,7 +2242,10 @@ async fn run_tmux_state_poll_loop(
                 // Hooks correct tmux layout churn immediately; this slower poll
                 // is only a backstop for missed external tmux changes.
 
-                let snapshot = source.snapshot_json();
+                let worker_source = source.clone();
+                let Ok(snapshot) = tokio::task::spawn_blocking(move || worker_source.snapshot_json()).await else {
+                    continue;
+                };
                 // Hash the snapshot ignoring the per-tick `ts` field so that
                 // identical state on consecutive ticks does not trigger a
                 // wasteful re-broadcast. Anything else changing (sessions,
@@ -1730,8 +2255,8 @@ async fn run_tmux_state_poll_loop(
                 let mut hasher = DefaultHasher::new();
                 stripped.hash(&mut hasher);
                 let hash = hasher.finish();
-                if hash != last_hash {
-                    last_hash = hash;
+                if Some(hash) != last_hash {
+                    last_hash = Some(hash);
                     debug_log("tmux_state_poll_loop: state changed, broadcasting");
                     let _ = state_updates.send(snapshot);
                 }
@@ -1815,12 +2340,16 @@ async fn run_agent_watcher_loop(
                     let agent = snapshot.agent.to_string();
                     let status = snapshot.status;
                     let thread_name = snapshot.thread_name.clone();
-                    if source.apply_agent_watcher_snapshot(snapshot) {
+                    let worker_source = source.clone();
+                    let applied = tokio::task::spawn_blocking(move || {
+                        worker_source.apply_agent_watcher_snapshot(snapshot).then(|| worker_source.snapshot_json())
+                    }).await.unwrap_or_default();
+                    if let Some(payload) = applied {
                         debug_log(format!(
                             "agent_watcher_loop: applied snapshot agent={agent} status={status:?} thread={thread_name:?}",
                         ));
                         last_seen.insert(key, fingerprint);
-                        let _ = state_updates.send(source.snapshot_json());
+                        let _ = state_updates.send(payload);
                     } else {
                         debug_log(format!(
                             "agent_watcher_loop: dropped snapshot agent={agent} status={status:?} (no matching session)",
@@ -2181,8 +2710,27 @@ fn activate_session_json(name: String, source_pane_id: Option<&str>) -> String {
     serde_json::to_string(&SidebarServerMessage::ActivateSession {
         name,
         source_pane_id: source_pane_id.map(str::to_string),
+        target_pane_id: None,
+        client_tty: None,
+        target_thread_id: None,
     })
     .expect("activate-session must serialize")
+}
+
+fn activate_agent_pane_json(
+    name: String,
+    pane: &str,
+    client_tty: Option<&str>,
+    thread: Option<&str>,
+) -> String {
+    serde_json::to_string(&SidebarServerMessage::ActivateSession {
+        name,
+        source_pane_id: None,
+        target_pane_id: Some(pane.to_string()),
+        client_tty: client_tty.map(str::to_string),
+        target_thread_id: thread.map(str::to_string),
+    })
+    .expect("activate-agent-pane must serialize")
 }
 
 fn parse_metadata_tone(value: &str) -> Option<MetadataTone> {
@@ -2499,11 +3047,49 @@ async fn handle_connection(
 ) -> Result<(), ServerError> {
     let mut request = read_http_header(&mut stream).await?;
     let parsed = parse_http_request(&request)?;
+    if parsed.path == "/api/agent-name" && parsed.content_length() > 4096 {
+        write_agent_json(&mut stream, "413 Payload Too Large", &serde_json::json!({"error":{"code":"invalid_payload","message":"Agent naming request is too large"}})).await?;
+        return Ok(());
+    }
     read_remaining_http_body(&mut stream, &mut request, parsed.content_length()).await?;
+
+    if matches!(parsed.path.as_str(), "/api/agents" | "/api/agent-name") {
+        let result = match (parsed.method.as_str(), parsed.path.as_str()) {
+            ("GET", "/api/agents") => state_source
+                .as_ref()
+                .ok_or_else(AgentNameError::unavailable)
+                .and_then(|source| source.agent_list_json())
+                .map(|body| (body, None)),
+            ("POST", "/api/agent-name") => serde_json::from_slice::<Value>(http_body(&request))
+                .map_err(|_| AgentNameError::invalid_payload())
+                .and_then(|body| {
+                    state_source
+                        .as_ref()
+                        .ok_or_else(AgentNameError::unavailable)
+                        .and_then(|source| source.rename_agent_json(&body))
+                }),
+            _ => {
+                write_agent_json(&mut stream, "405 Method Not Allowed", &serde_json::json!({"error":{"code":"method_not_allowed","message":"Use GET /api/agents or POST /api/agent-name"}})).await?;
+                return Ok(());
+            }
+        };
+        match result {
+            Ok((body, snapshot)) => {
+                if let Some(snapshot) = snapshot {
+                    let _ = state_updates.send(snapshot);
+                }
+                write_agent_json(&mut stream, "200 OK", &body).await?;
+            }
+            Err(error) => write_agent_json(&mut stream, error.status, &error.body()).await?,
+        }
+        return Ok(());
+    }
 
     if parsed.method == "POST" && parsed.path == "/refresh" {
         if let Some(state_source) = &state_source {
-            let _ = state_updates.send(state_source.snapshot_json());
+            if let Some(snapshot) = state_source.cached_snapshot_json() {
+                let _ = state_updates.send(snapshot);
+            }
         }
         stream
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
@@ -2513,12 +3099,11 @@ async fn handle_connection(
     }
 
     if parsed.method == "POST" && parsed.path == "/focus" {
-        let body = String::from_utf8_lossy(http_body(&request));
-        if let Some(payload) = state_source
-            .as_ref()
-            .and_then(|state_source| state_source.handle_http_text(&parsed.path, &body))
-        {
-            let _ = state_updates.send(payload);
+        let body = String::from_utf8_lossy(http_body(&request)).into_owned();
+        if let Some(source) = &state_source {
+            if let Some(payload) = source.handle_http_text(&parsed.path, &body) {
+                let _ = state_updates.send(payload);
+            }
         }
         stream
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
@@ -2550,9 +3135,12 @@ async fn handle_connection(
     }
 
     if parsed.method == "POST" && is_ok_hook_path(&parsed.path) {
-        let body = String::from_utf8_lossy(http_body(&request));
-        if let Some(state_source) = &state_source {
-            if let Some(payload) = state_source.handle_http_hook(&parsed.path, &body) {
+        let body = String::from_utf8_lossy(http_body(&request)).into_owned();
+        if let Some(source) = state_source.clone() {
+            let path = parsed.path.clone();
+            if let Some(payload) =
+                tokio::task::spawn_blocking(move || source.handle_http_hook(&path, &body)).await?
+            {
                 let _ = state_updates.send(payload);
             }
         }
@@ -2723,7 +3311,9 @@ async fn handle_connection(
         websocket.send(Message::text(HELLO_JSON)).await?;
         if let Some(state_source) = &state_source {
             websocket
-                .send(Message::text(state_source.snapshot_json()))
+                .send(Message::text(
+                    initial_state_json(state_source.clone()).await?,
+                ))
                 .await?;
         }
 
@@ -2766,6 +3356,11 @@ async fn handle_connection(
                                     .and_then(|state_source| state_source.handle_sender_command_with_context(&command, &mut client_context))
                                 {
                                     websocket.send(Message::text(reply)).await?;
+                                    if command.get("type").and_then(Value::as_str) == Some("identify-pane")
+                                        && let Some(focus) = state_source.as_ref()
+                                            .and_then(|source| source.sender_agent_focus_json(&client_context)) {
+                                        websocket.send(Message::text(focus)).await?;
+                                    }
                                 }
                                 if let Some(name) = switch_session_target(&command) {
                                     let _ = state_updates.send(activate_session_json(
@@ -2966,6 +3561,24 @@ async fn read_remaining_http_body(
     Ok(())
 }
 
+async fn write_agent_json(
+    stream: &mut TcpStream,
+    status: &str,
+    body: &Value,
+) -> Result<(), ServerError> {
+    let body = serde_json::to_string(body).map_err(|error| ServerError::new(error.to_string()))?;
+    stream.write_all(format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await?;
+    stream.shutdown().await?;
+    Ok(())
+}
+
+async fn initial_state_json(source: Arc<dyn StateSource>) -> Result<String, ServerError> {
+    if let Some(snapshot) = source.cached_snapshot_json() {
+        return Ok(snapshot);
+    }
+    Ok(tokio::task::spawn_blocking(move || source.snapshot_json()).await?)
+}
+
 fn http_body(request: &[u8]) -> &[u8] {
     let Some(header_end) = request.windows(4).position(|window| window == b"\r\n\r\n") else {
         return &[];
@@ -3018,4 +3631,575 @@ fn clamp_detail_panel_height(height: u16) -> u16 {
 
 fn parse_command(message: &Message) -> Option<Value> {
     serde_json::from_str::<Value>(message.as_text()?).ok()
+}
+
+#[cfg(test)]
+mod agent_presence_tests {
+    use super::*;
+    use opensessions_runtime::mux::{AgentPane, MuxSessionInfo};
+
+    #[test]
+    fn passive_focus_targets_exact_live_pane_and_replays_for_identified_client() {
+        let source = source_with_agent_panes(Vec::new());
+        *source.confirmed_agent_panes.lock().unwrap() =
+            HashMap::from([("work".into(), vec![live_pane("%7"), live_pane("%8")])]);
+        let message = source
+            .handle_http_text("/focus", "/dev/ttys1|work|@1|%7|1")
+            .unwrap();
+        let value: Value = serde_json::from_str(&message).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({"type":"activate-session","name":"work",
+            "targetPaneId":"%7","clientTty":"/dev/ttys1"})
+        );
+        assert!(
+            source
+                .handle_http_text("/focus", "/dev/ttys1|work|@1|%7|1")
+                .is_none()
+        );
+        let context = ClientConnectionContext {
+            client_tty: Some("/dev/ttys1".into()),
+            session_name: Some("work".into()),
+            ..Default::default()
+        };
+        assert_eq!(source.sender_agent_focus_json(&context), Some(message));
+        assert!(
+            source
+                .sender_agent_focus_json(&ClientConnectionContext {
+                    client_tty: Some("/dev/ttys2".into()),
+                    ..context.clone()
+                })
+                .is_none()
+        );
+        assert!(
+            source
+                .handle_http_text("/focus", "/dev/ttys1|work|@1|%8|0")
+                .is_none()
+        );
+        let next: Value = serde_json::from_str(
+            &source
+                .handle_http_text("/focus", "/dev/ttys1|work|@1|%8|1")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(next["targetPaneId"], "%8");
+        assert!(
+            source
+                .handle_http_text("/focus", "/dev/ttys1|work|@1|%99|1")
+                .is_none()
+        );
+        source.confirmed_agent_panes.lock().unwrap().clear();
+        assert!(source.sender_agent_focus_json(&context).is_none());
+    }
+
+    #[test]
+    fn explicit_focus_emits_target_without_new_inventory_even_when_already_focused() {
+        let source = source_with_agent_panes(Vec::new());
+        *source.confirmed_agent_panes.lock().unwrap() =
+            HashMap::from([("work".into(), vec![live_pane("%7")])]);
+        source
+            .confirmed_inventory_ready
+            .store(true, Ordering::Release);
+        source
+            .focused_pane_by_session
+            .lock()
+            .unwrap()
+            .insert("work".into(), "%7".into());
+        let context = ClientConnectionContext {
+            client_tty: Some("/dev/ttys1".into()),
+            ..Default::default()
+        };
+        let command = serde_json::json!({"type":"focus-agent-pane","session":"work",
+            "agent":"claude-code","paneId":"%7"});
+        let payload: Value = serde_json::from_str(
+            &source
+                .handle_client_command_with_context(&command, Some(&context))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(payload["targetPaneId"], "%7");
+        assert_eq!(payload["clientTty"], "/dev/ttys1");
+        assert!(
+            source
+                .handle_http_text("/focus", "/dev/ttys1|work|@1|%7|1")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn legacy_activation_json_is_unchanged_and_decodes_without_new_fields() {
+        let message = activate_session_json("work".into(), Some("%9"));
+        assert_eq!(
+            message,
+            r#"{"type":"activate-session","name":"work","sourcePaneId":"%9"}"#
+        );
+        let decoded: SidebarServerMessage = serde_json::from_str(&message).unwrap();
+        assert!(matches!(
+            decoded,
+            SidebarServerMessage::ActivateSession {
+                target_pane_id: None,
+                client_tty: None,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn supplied_pane_focus_requires_cached_family_thread_and_session() {
+        let source = source_with_agent_panes(Vec::new());
+        let pane = PanePresenceInput {
+            thread_id: Some("T-1".into()),
+            ..live_pane("%7")
+        };
+        *source.confirmed_agent_panes.lock().unwrap() =
+            HashMap::from([("work".into(), vec![pane])]);
+        source
+            .confirmed_inventory_ready
+            .store(true, Ordering::Release);
+        assert!(
+            source
+                .resolve_agent_pane("work", "claude-code", Some("T-1"), None, Some("%7"))
+                .is_some()
+        );
+        for (session, family, thread, pane) in [
+            ("work", "codex", "T-1", "%7"),
+            ("work", "claude-code", "T-other", "%7"),
+            ("other", "claude-code", "T-1", "%7"),
+            ("work", "claude-code", "T-1", "%9"),
+        ] {
+            assert!(
+                source
+                    .resolve_agent_pane(session, family, Some(thread), None, Some(pane))
+                    .is_none()
+            );
+        }
+        source.confirmed_agent_panes.lock().unwrap().clear();
+        assert!(
+            source
+                .resolve_agent_pane("work", "claude-code", Some("T-1"), None, Some("%7"))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn explicit_focus_deduplicates_bursts_but_not_historical_focus() {
+        let source = source_with_agent_panes(Vec::new());
+        assert!(source.should_focus_agent_pane("work", "%7"));
+        assert!(!source.should_focus_agent_pane("work", "%7"));
+        source
+            .focused_pane_by_session
+            .lock()
+            .unwrap()
+            .insert("work".into(), "%8".into());
+        assert!(!source.should_focus_agent_pane("work", "%7"));
+        assert!(source.should_focus_agent_pane("work", "%9"));
+        source
+            .focused_pane_by_session
+            .lock()
+            .unwrap()
+            .insert("work".into(), "%9".into());
+        *source.last_explicit_agent_focus.lock().unwrap() = Some((
+            "work".into(),
+            "%9".into(),
+            Instant::now() - std::time::Duration::from_millis(AGENT_FOCUS_COOLDOWN_MS + 1),
+        ));
+        assert!(source.should_focus_agent_pane("work", "%9"));
+    }
+
+    #[test]
+    fn live_pane_title_overrides_transcript_label_in_outgoing_rows() {
+        let pane = PanePresenceInput {
+            thread_name: Some("api-reviewer".into()),
+            ..live_pane("%7")
+        };
+        let tracked = AgentEvent {
+            thread_name: Some("Long transcript prompt".into()),
+            ..agents_with_live_panes("liquid", Vec::new(), &[live_pane("%7")]).remove(0)
+        };
+        assert_eq!(
+            agents_with_live_panes("liquid", vec![tracked], &[pane])[0]
+                .thread_name
+                .as_deref(),
+            Some("api-reviewer")
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn initial_websocket_state_uses_cache_without_native_snapshot() {
+        struct CachedSource;
+        impl StateSource for CachedSource {
+            fn snapshot_json(&self) -> String {
+                panic!("initial connection must not trigger another native inventory")
+            }
+            fn cached_snapshot_json(&self) -> Option<String> {
+                Some("cached state".into())
+            }
+        }
+        assert_eq!(
+            initial_state_json(Arc::new(CachedSource)).await.unwrap(),
+            "cached state"
+        );
+    }
+
+    async fn agent_api_request(
+        source: Arc<ReadOnlyMuxStateSource>,
+        method: &str,
+        path: &str,
+        body: &str,
+    ) -> (
+        String,
+        broadcast::Receiver<String>,
+        broadcast::Receiver<String>,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (shutdown, _) = broadcast::channel(4);
+        let (updates, first) = broadcast::channel(4);
+        let second = updates.subscribe();
+        let task = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            handle_connection(
+                stream,
+                shutdown,
+                Some(source),
+                updates,
+                Arc::new(ShutdownAnnouncement::default()),
+            )
+            .await
+            .unwrap();
+        });
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        client.write_all(format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        let mut response = Vec::new();
+        tokio::time::timeout(Duration::from_secs(2), client.read_to_end(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        task.await.unwrap();
+        (String::from_utf8(response).unwrap(), first, second)
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn naming_endpoints_list_rename_clear_and_reject_invalid_json() {
+        let source = Arc::new(source_with_agent_panes(Vec::new()));
+        *source.confirmed_agent_panes.lock().unwrap() =
+            HashMap::from([("liquid".into(), vec![live_pane("%7")])]);
+        source
+            .confirmed_inventory_ready
+            .store(true, Ordering::Release);
+        let (list, _, _) = agent_api_request(source.clone(), "GET", "/api/agents", "").await;
+        assert!(list.starts_with("HTTP/1.1 200 OK"));
+        assert!(list.contains("Unnamed"));
+        let (renamed, _, _) = agent_api_request(
+            source.clone(),
+            "POST",
+            "/api/agent-name",
+            r#"{"paneId":"%7","name":"api-reviewer"}"#,
+        )
+        .await;
+        assert!(renamed.starts_with("HTTP/1.1 200 OK") && renamed.contains("api-reviewer"));
+        let (invalid, _, _) =
+            agent_api_request(source.clone(), "POST", "/api/agent-name", "{").await;
+        assert!(
+            invalid.starts_with("HTTP/1.1 400 Bad Request") && invalid.contains("invalid_payload")
+        );
+        let (cleared, _, _) = agent_api_request(
+            source,
+            "POST",
+            "/api/agent-name",
+            r#"{"paneId":"%7","name":null}"#,
+        )
+        .await;
+        assert!(cleared.starts_with("HTTP/1.1 200 OK") && cleared.contains("Unnamed"));
+    }
+
+    #[test]
+    fn hook_reported_needs_input_marks_live_agent_waiting() {
+        let pane = PanePresenceInput {
+            needs_input: true,
+            ..live_pane("%7")
+        };
+        let stale = AgentEvent {
+            status: AgentStatus::Stale,
+            ..agents_with_live_panes("liquid", Vec::new(), &[live_pane("%7")]).remove(0)
+        };
+        let agents = agents_with_live_panes("liquid", vec![stale], &[pane]);
+        assert_eq!(agents[0].status, AgentStatus::Waiting);
+        let agents = agents_with_live_panes("liquid", Vec::new(), &[live_pane("%7")]);
+        assert_ne!(agents[0].status, AgentStatus::Waiting);
+    }
+
+    fn live_pane(id: &str) -> PanePresenceInput {
+        PanePresenceInput {
+            agent: "claude-code".into(),
+            pane_id: id.into(),
+            active: false,
+            thread_id: None,
+            thread_name: None,
+            needs_input: false,
+        }
+    }
+
+    #[test]
+    fn live_agent_panes_have_individual_rows_without_recent_transcripts() {
+        let panes = (1..=5)
+            .map(|index| live_pane(&format!("%{index}")))
+            .collect::<Vec<_>>();
+        let agents = agents_with_live_panes("liquid", Vec::new(), &panes);
+        assert_eq!(agents.len(), 5);
+        assert!(agents.iter().all(|agent| agent.status == AgentStatus::Idle
+            && agent.liveness == Some(AgentLiveness::Alive)));
+        assert_eq!(
+            agents
+                .iter()
+                .filter_map(|agent| agent.pane_id.as_deref())
+                .collect::<HashSet<_>>()
+                .len(),
+            5
+        );
+    }
+
+    #[test]
+    fn newest_logical_owner_replaces_one_pane_fallback_without_duplicates() {
+        let fallback = agents_with_live_panes("liquid", Vec::new(), &[live_pane("%7")]).remove(0);
+        let first = AgentEvent {
+            ts: 1,
+            thread_id: Some("old-thread".into()),
+            ..fallback.clone()
+        };
+        let newest = AgentEvent {
+            ts: 2,
+            thread_id: Some("new-thread".into()),
+            status: AgentStatus::Done,
+            ..fallback
+        };
+        assert_eq!(
+            agents_with_live_panes(
+                "liquid",
+                vec![first, newest.clone()],
+                &[live_pane("%7"), live_pane("%7")]
+            ),
+            vec![newest]
+        );
+    }
+
+    #[test]
+    fn vanished_live_pane_has_no_display_fallback() {
+        let tracked = agents_with_live_panes("liquid", Vec::new(), &[live_pane("%7")]);
+        assert!(agents_with_live_panes("liquid", tracked, &[]).is_empty());
+    }
+
+    #[test]
+    fn default_state_source_honors_persisted_live_view_settings() {
+        let home = std::env::temp_dir().join(format!(
+            "opensessions-live-view-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let config_dir = home.join(".config/opensessions");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(
+            config_dir.join("config.json"),
+            r#"{"sessionFilter":"active","agentPanelScope":"all","detailPanelHeight":12}"#,
+        )
+        .unwrap();
+        let source = default_state_source_from_env(|key| match key {
+            "HOME" => Some(home.to_string_lossy().into_owned()),
+            "TMUX" => Some("mock socket".into()),
+            _ => None,
+        })
+        .unwrap();
+        fs::remove_dir_all(home).unwrap();
+        assert_eq!(
+            *source.session_filter.lock().unwrap(),
+            Some(SessionFilterMode::Active)
+        );
+        assert_eq!(
+            *source.agent_panel_scope.lock().unwrap(),
+            AgentPanelScope::All
+        );
+        assert_eq!(*source.detail_panel_height.lock().unwrap(), 12);
+    }
+
+    struct AgentProvider {
+        panes: Mutex<Vec<AgentPane>>,
+    }
+
+    impl MuxProvider for AgentProvider {
+        fn name(&self) -> &str {
+            "fixture"
+        }
+        fn list_sessions(&self) -> Vec<MuxSessionInfo> {
+            vec![MuxSessionInfo {
+                name: "work".into(),
+                dir: "/fixture".into(),
+                created_at: 0,
+                windows: 1,
+            }]
+        }
+        fn switch_session(&self, _: &str, _: Option<&str>) {}
+        fn get_current_session(&self) -> Option<String> {
+            Some("work".into())
+        }
+        fn get_session_dir(&self, _: &str) -> String {
+            "/fixture".into()
+        }
+        fn get_pane_count(&self, _: &str) -> u32 {
+            1
+        }
+        fn get_client_tty(&self) -> String {
+            String::new()
+        }
+        fn create_session(&self, _: Option<&str>, _: Option<&str>) {}
+        fn kill_session(&self, _: &str) {}
+        fn setup_hooks(&self, _: &str, _: u16) {}
+        fn cleanup_hooks(&self) {}
+        fn list_agent_panes(&self, _: &str) -> Vec<AgentPane> {
+            self.panes.lock().unwrap().clone()
+        }
+        fn resolve_agent_pane_id(
+            &self,
+            _: &str,
+            agent: &str,
+            _: Option<&str>,
+            _: Option<&str>,
+        ) -> Option<String> {
+            self.panes
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|pane| pane.agent == agent)
+                .map(|pane| pane.pane_id.clone())
+        }
+    }
+
+    fn source_with_agent_panes(panes: Vec<AgentPane>) -> ReadOnlyMuxStateSource {
+        ReadOnlyMuxStateSource::new(vec![Arc::new(AgentProvider {
+            panes: Mutex::new(panes),
+        })])
+    }
+
+    fn watcher_snapshot() -> AgentWatcherSnapshot {
+        AgentWatcherSnapshot {
+            agent: "codex",
+            thread_id: Some("T-1".into()),
+            thread_name: Some("Recent conversation".into()),
+            last_user_prompt: None,
+            project_dir: Some("/fixture".into()),
+            status: AgentStatus::Done,
+            ts: 1,
+        }
+    }
+
+    #[test]
+    fn recent_watcher_snapshot_without_live_agent_pane_does_not_create_ghost() {
+        let source = source_with_agent_panes(Vec::new());
+        assert!(!source.apply_agent_watcher_snapshot(watcher_snapshot()));
+        assert!(
+            source
+                .agent_tracker
+                .lock()
+                .unwrap()
+                .get_agents("work")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn completed_watcher_snapshot_with_live_agent_pane_remains_visible() {
+        let source = source_with_agent_panes(vec![AgentPane {
+            agent: "codex".into(),
+            pane_id: "%7".into(),
+            active: false,
+            thread_id: Some("T-1".into()),
+            thread_name: None,
+            needs_input: false,
+        }]);
+        assert!(source.apply_agent_watcher_snapshot(watcher_snapshot()));
+        let state = source
+            .agent_tracker
+            .lock()
+            .unwrap()
+            .get_state("work")
+            .unwrap();
+        assert_eq!(state.status, AgentStatus::Done);
+        assert_eq!(state.pane_id.as_deref(), Some("%7"));
+        assert_eq!(state.liveness, Some(AgentLiveness::Alive));
+    }
+
+    #[test]
+    fn external_codex_event_without_live_pane_retains_unknown_liveness() {
+        let source = source_with_agent_panes(Vec::new());
+        source
+            .apply_agent_event(
+                &serde_json::json!({"agent":"codex", "status":"running", "tmuxSession":"work"}),
+            )
+            .unwrap();
+        source.sync_agent_pane_presence();
+        let state = source
+            .agent_tracker
+            .lock()
+            .unwrap()
+            .get_state("work")
+            .unwrap();
+        assert_eq!(state.liveness, None);
+        assert_eq!(state.pane_id, None);
+    }
+
+    #[test]
+    fn same_watcher_thread_resume_restores_row_without_reapplying_snapshot() {
+        let pane = AgentPane {
+            agent: "codex".into(),
+            pane_id: "%7".into(),
+            active: false,
+            thread_id: Some("T-1".into()),
+            thread_name: None,
+            needs_input: false,
+        };
+        let provider = Arc::new(AgentProvider {
+            panes: Mutex::new(vec![pane.clone()]),
+        });
+        let source = ReadOnlyMuxStateSource::new(vec![provider.clone()]);
+        assert!(source.apply_agent_watcher_snapshot(watcher_snapshot()));
+
+        provider.panes.lock().unwrap().clear();
+        source.sync_agent_pane_presence();
+        assert!(
+            source
+                .agent_tracker
+                .lock()
+                .unwrap()
+                .get_state("work")
+                .is_none()
+        );
+
+        provider.panes.lock().unwrap().push(pane);
+        source.sync_agent_pane_presence();
+        let resumed = source
+            .agent_tracker
+            .lock()
+            .unwrap()
+            .get_state("work")
+            .unwrap();
+        assert_eq!(resumed.thread_id.as_deref(), Some("T-1"));
+        assert_eq!(resumed.liveness, Some(AgentLiveness::Alive));
+    }
+
+    #[test]
+    fn dismiss_agent_command_removes_external_event() {
+        let source = source_with_agent_panes(Vec::new());
+        source.apply_agent_event(&serde_json::json!({"agent":"codex", "status":"running", "tmuxSession":"work", "threadId":"external"})).unwrap();
+        source.handle_client_command(&serde_json::json!({"type":"dismiss-agent", "session":"work", "agent":"codex", "threadId":"external"}));
+        assert!(
+            source
+                .agent_tracker
+                .lock()
+                .unwrap()
+                .get_agents("work")
+                .is_empty()
+        );
+    }
 }

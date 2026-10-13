@@ -27,6 +27,13 @@ pub enum ServerMessage {
         name: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         source_pane_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_pane_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client_tty: Option<String>,
+        /// Disambiguates rows sharing one pane (remote agents behind ssh).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_thread_id: Option<String>,
     },
     ReIdentify,
 }
@@ -168,6 +175,10 @@ pub struct AgentEvent {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub liveness: Option<AgentLiveness>,
+    /// Where the agent runs when it is not a local pane, e.g. `devbox · 1:feature`.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]

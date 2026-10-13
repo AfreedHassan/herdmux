@@ -2,12 +2,18 @@ use std::collections::{HashMap, HashSet};
 use std::process::Command;
 use std::sync::Arc;
 
+use crate::agent_identity::{AgentIdentityCache, useful_pane_title};
+
 use crate::mux::{
     ActiveWindow, AgentPane, ClientFocus, MuxProvider, MuxSessionInfo, SidebarPane, SidebarPosition,
 };
+use crate::process_presence::{
+    ProcessCache, ProcessTree, ThreadPaneHint, agent_for_executable, thread_pane_hint,
+};
 use crate::tmux_scripting::{
+    sidebar_width_layout_hook,
     delayed_http_hook_command, hook_context_format, http_hook_command, pane_died_hook_command,
-    pane_exited_hook_command, sidebar_width_repair_pipeline,
+    pane_exited_hook_command,
 };
 
 const SEP: &str = "\t";
@@ -104,6 +110,8 @@ pub struct PaneInfo {
     pub height: u16,
     pub left: u16,
     pub right: u16,
+    /// `@opensessions_state` set by agent hooks (`opensessions-agent-state`).
+    pub agent_state: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -228,6 +236,47 @@ impl TmuxClient {
 
     pub fn select_pane(&self, target: &str) {
         self.run(&["select-pane", "-t", target]);
+    }
+
+    /// Reveal `pane_id` on the client in a single tmux command list so the
+    /// client never renders the destination session's previously active pane.
+    /// `switch-client -t %pane` keeps tmux 3.5 clients in their current
+    /// session, so the client is switched by session id once the
+    /// destination window and pane are already selected.
+    pub fn reveal_pane(
+        &self,
+        pane_id: &str,
+        session_id: Option<&str>,
+        window_id: Option<&str>,
+        client_tty: Option<&str>,
+    ) {
+        let mut args: Vec<&str> = Vec::new();
+        if let Some(window_id) = window_id.filter(|id| !id.is_empty()) {
+            args.extend(["select-window", "-t", window_id, ";"]);
+        }
+        args.extend(["select-pane", "-t", pane_id]);
+        if let Some(session_id) = session_id.filter(|id| !id.is_empty()) {
+            args.extend([";", "switch-client"]);
+            if let Some(client_tty) = client_tty.filter(|tty| !tty.is_empty()) {
+                args.extend(["-c", client_tty]);
+            }
+            args.extend(["-t", session_id]);
+        }
+        args.extend([";", "select-pane", "-t", pane_id, "-P", "bg=colour238"]);
+        let output = self.run(&args);
+        if output.exit_code != 0 {
+            eprintln!("reveal_pane {pane_id} failed: {}", output.stderr);
+        }
+        self.schedule_flash_reset(pane_id);
+    }
+
+    fn schedule_flash_reset(&self, target: &str) {
+        let quoted = shell_quote(target);
+        self.run(&[
+            "run-shell",
+            "-b",
+            &format!("sleep 0.18; tmux select-pane -t {quoted} -P default"),
+        ]);
     }
 
     pub fn flash_pane(&self, target: &str) {
@@ -428,6 +477,8 @@ pub enum PaneScope<'a> {
 pub struct TmuxProvider {
     name: String,
     client: TmuxClient,
+    processes: Arc<ProcessCache>,
+    identities: Arc<AgentIdentityCache>,
 }
 
 impl TmuxProvider {
@@ -435,6 +486,8 @@ impl TmuxProvider {
         Self {
             name: "tmux".to_string(),
             client: TmuxClient::new(runner),
+            processes: Arc::new(ProcessCache::default()),
+            identities: Arc::new(AgentIdentityCache::default()),
         }
     }
 }
@@ -511,16 +564,10 @@ impl MuxProvider for TmuxProvider {
         let ensure_cmd = http_hook_command(&base, "/ensure-sidebar", Some(hook_context), true);
         let pane_exited_cmd = pane_exited_hook_command(&base);
         let pane_died_cmd = pane_died_hook_command(&base);
-        let repair_sidebar_width_cmd =
-            format!("run-shell -b \"{}\"", sidebar_width_repair_pipeline());
-        let client_resized_cmd = format!(
-            "{repair_sidebar_width_cmd} ; {}",
-            delayed_http_hook_command(&base, "/client-resized"),
-        );
-        let pane_layout_changed_cmd = format!(
-            "{repair_sidebar_width_cmd} ; {}",
-            delayed_http_hook_command(&base, "/pane-layout-changed"),
-        );
+        let client_resized_cmd = delayed_http_hook_command(&base, "/client-resized");
+        let pane_layout_changed_cmd = delayed_http_hook_command(&base, "/pane-layout-changed");
+        // Width enforcement also fires this hook, so it must not request another resize.
+        let pane_resized_cmd = delayed_http_hook_command(&base, "/refresh");
 
         self.client.set_global_hook(
             "client-session-changed",
@@ -539,9 +586,11 @@ impl MuxProvider for TmuxProvider {
         self.client.set_global_hook("pane-exited", &pane_exited_cmd);
         self.client.set_global_hook("pane-died", &pane_died_cmd);
         self.client
-            .set_global_hook("after-resize-pane", &repair_sidebar_width_cmd);
+            .set_global_hook("after-resize-pane", &pane_resized_cmd);
         self.client
             .set_global_hook("after-resize-window", &pane_layout_changed_cmd);
+        self.client
+            .set_global_hook("window-layout-changed", &sidebar_width_layout_hook());
         self.client.set_remain_on_exit_for_sidebar_windows(true);
     }
 
@@ -560,6 +609,7 @@ impl MuxProvider for TmuxProvider {
             "pane-died",
             "after-resize-pane",
             "after-resize-window",
+            "window-layout-changed",
         ] {
             self.client.unset_global_hook(hook);
         }
@@ -652,17 +702,35 @@ impl MuxProvider for TmuxProvider {
     }
 
     fn list_agent_panes(&self, session_name: &str) -> Vec<AgentPane> {
+        let processes = self.processes.snapshot();
+        let identities = self.identities.snapshot();
         self.client
             .list_panes(PaneScope::Session(session_name))
             .into_iter()
             .filter(|pane| pane.title != "opensessions-sidebar")
-            .filter_map(|pane| agent_from_pane(&pane).map(|agent| (pane, agent)))
-            .map(|(pane, agent)| AgentPane {
-                thread_name: thread_name_from_pane(&pane, &agent),
-                agent,
-                pane_id: pane.id,
-                active: pane.active,
-                thread_id: None,
+            .filter_map(|pane| {
+                agent_from_pane(&pane, processes.as_deref()).map(|agent| (pane, agent))
+            })
+            .map(|(pane, agent)| {
+                let identity = processes
+                    .as_deref()
+                    .filter(|tree| tree.agent_under(pane.pid) == Some(agent.as_str()))
+                    .and_then(|_| identities.get(&(agent.clone(), pane.id.clone())));
+                let needs_input = pane_needs_input(
+                    &pane.agent_state,
+                    identity.is_some_and(|identity| identity.needs_input),
+                );
+                AgentPane {
+                    thread_name: identity
+                        .and_then(|identity| identity.title.clone())
+                        .or_else(|| thread_name_from_pane(&pane, &agent))
+                        .or_else(|| useful_pane_title(&pane.title, &agent)),
+                    thread_id: identity.map(|identity| identity.thread_id.clone()),
+                    agent,
+                    pane_id: pane.id,
+                    active: pane.active,
+                    needs_input,
+                }
             })
             .collect()
     }
@@ -688,6 +756,23 @@ impl MuxProvider for TmuxProvider {
         self.client.flash_pane(pane_id);
     }
 
+    fn pane_ttys(&self) -> Vec<(String, String, String)> {
+        self.client
+            .list_panes(PaneScope::All)
+            .into_iter()
+            .filter(|pane| pane.title != "opensessions-sidebar")
+            .map(|pane| (pane.tty, pane.id, pane.session_name))
+            .collect()
+    }
+
+    fn reveal_pane(&self, pane_id: &str, client_tty: Option<&str>) {
+        let location = self.client.display("#{session_id} #{window_id}", Some(pane_id));
+        let mut parts = location.split_whitespace();
+        let (session_id, window_id) = (parts.next(), parts.next());
+        self.client
+            .reveal_pane(pane_id, session_id, window_id, client_tty);
+    }
+
     fn kill_pane(&self, pane_id: &str) {
         self.client.kill_pane(pane_id);
     }
@@ -696,45 +781,23 @@ impl MuxProvider for TmuxProvider {
         &self,
         session: &str,
         agent: &str,
-        _thread_id: Option<&str>,
+        thread_id: Option<&str>,
         thread_name: Option<&str>,
     ) -> Option<String> {
+        let processes = self.processes.snapshot();
         let panes = self
             .client
             .list_panes(PaneScope::Session(session))
             .into_iter()
             .filter(|pane| pane.title != "opensessions-sidebar")
+            .filter(|pane| agent_from_pane(pane, processes.as_deref()).as_deref() == Some(agent))
             .collect::<Vec<_>>();
 
-        if agent == "amp"
-            && let Some(thread_name) = thread_name
-        {
-            let matches = panes
-                .iter()
-                .filter(|pane| {
-                    pane.title.to_lowercase().starts_with("amp - ")
-                        && pane.title.contains(thread_name)
-                })
-                .collect::<Vec<_>>();
-            if matches.len() == 1 {
-                return Some(matches[0].id.clone());
-            }
-        }
-
-        let patterns = match agent {
-            "amp" => &["amp"][..],
-            "claude-code" => &["claude"][..],
-            "codex" => &["codex"][..],
-            "opencode" => &["opencode"][..],
-            _ => return None,
-        };
-        panes
-            .into_iter()
-            .find(|pane| {
-                let title = pane.title.to_lowercase();
-                patterns.iter().any(|pattern| title.contains(pattern))
-            })
-            .map(|pane| pane.id)
+        resolve_candidate_pane(
+            &panes,
+            thread_name,
+            thread_id.and_then(|id| thread_pane_hint(agent, id)),
+        )
     }
 
     fn resize_sidebar_pane(&self, pane_id: &str, width: u16) {
@@ -854,45 +917,75 @@ fn client_format() -> &'static str {
 }
 
 fn pane_format() -> &'static str {
-    "#{pane_id}\t#{session_name}\t#{window_id}\t#{window_index}\t#{pane_index}\t#{pane_active}\t#{pane_tty}\t#{pane_pid}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_title}\t#{pane_width}\t#{pane_height}\t#{pane_left}\t#{pane_right}"
+    "#{pane_id}\t#{session_name}\t#{window_id}\t#{window_index}\t#{pane_index}\t#{pane_active}\t#{pane_tty}\t#{pane_pid}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_title}\t#{pane_width}\t#{pane_height}\t#{pane_left}\t#{pane_right}\t#{@opensessions_state}"
 }
 
-fn agent_from_pane(pane: &PaneInfo) -> Option<String> {
-    let title = pane.title.to_lowercase();
-    let command = pane.command.to_lowercase();
-    if title == "pi" || title.starts_with("pi ") || title.starts_with('π') || command == "pi" {
-        return Some("pi".to_string());
+fn resolve_candidate_pane(
+    panes: &[PaneInfo],
+    thread_name: Option<&str>,
+    hint: Option<ThreadPaneHint>,
+) -> Option<String> {
+    if let Some(hint) = hint {
+        return match hint {
+            ThreadPaneHint::Active(pane_id) => panes
+                .iter()
+                .find(|pane| pane.id == pane_id)
+                .map(|pane| pane.id.clone()),
+            ThreadPaneHint::Ended => None,
+        };
     }
-    let haystack = format!("{title} {command}");
-    for (agent, aliases) in AGENT_ALIASES {
-        if aliases.iter().any(|alias| haystack.contains(alias)) {
-            return Some((*agent).to_string());
+    if let Some(thread_name) = thread_name.filter(|name| !name.is_empty()) {
+        let matches = panes
+            .iter()
+            .filter(|pane| pane.title.contains(thread_name))
+            .collect::<Vec<_>>();
+        if matches.len() == 1 {
+            return Some(matches[0].id.clone());
         }
     }
-    None
+    (panes.len() == 1).then(|| panes[0].id.clone())
 }
 
-// Keep this broad and process/title based for zero-config agent
-// awareness. Transcript/file watchers still provide richer status where we
-// have native integrations; this path makes panes from other popular CLIs show
-// up immediately instead of disappearing from the sidebar.
-const AGENT_ALIASES: &[(&str, &[&str])] = &[
-    ("amp", &["amp", "amp-local"]),
-    ("claude-code", &["claude", "claude-code"]),
-    ("codex", &["codex"]),
-    ("gemini", &["gemini"]),
-    ("cursor", &["cursor", "cursor-agent"]),
-    ("antigravity", &["agy", "antigravity", "antigravity-cli"]),
-    ("cline", &["cline"]),
-    ("opencode", &["opencode", "open-code"]),
-    ("github-copilot", &["copilot", "github-copilot", "ghcs"]),
-    ("kimi", &["kimi", "kimi-code"]),
-    ("kiro", &["kiro", "kiro-cli"]),
-    ("droid", &["droid"]),
-    ("grok", &["grok", "grok-build"]),
-    ("hermes", &["hermes", "hermes-agent"]),
-    ("qodercli", &["qodercli", "qoderclicn", "qoder", "qodercn"]),
-];
+fn agent_from_pane(pane: &PaneInfo, processes: Option<&ProcessTree>) -> Option<String> {
+    if let Some(agent) = processes.and_then(|tree| tree.agent_under(pane.pid)) {
+        return Some(agent.to_string());
+    }
+    let command = std::path::Path::new(&pane.command).file_name()?.to_str()?;
+    if matches!(
+        command,
+        "" | "zsh" | "bash" | "sh" | "fish" | "dash" | "ksh" | "nu" | "xonsh"
+    ) {
+        return None;
+    }
+    let hint = agent_from_pane_hints(pane)?;
+    if processes.is_some() && matches!(hint.as_str(), "claude-code" | "codex") {
+        return None;
+    }
+    Some(hint)
+}
+
+fn agent_from_pane_hints(pane: &PaneInfo) -> Option<String> {
+    if let Some(agent) = agent_for_executable(&pane.command) {
+        return Some(agent.to_string());
+    }
+    let title = pane.title.to_lowercase();
+    if title.starts_with('π') {
+        return Some("pi".to_string());
+    }
+    title
+        .split(|character: char| !character.is_ascii_alphanumeric() && character != '-')
+        .find_map(agent_for_executable)
+        .map(str::to_string)
+}
+
+/// Hook-set `@opensessions_state` is authoritative; the ai-sessions
+/// binding is only a fallback for panes whose agent has no hooks.
+fn pane_needs_input(agent_state: &str, binding_needs_input: bool) -> bool {
+    match agent_state {
+        "" => binding_needs_input,
+        state => state == "needs-input",
+    }
+}
 
 fn thread_name_from_pane(pane: &PaneInfo, agent: &str) -> Option<String> {
     let title = pane.title.trim();
@@ -987,6 +1080,7 @@ fn parse_panes(raw: &str) -> Vec<PaneInfo> {
                 height: parse_u16(&parts, 12),
                 left: parse_u16(&parts, 13),
                 right: parse_u16(&parts, 14),
+                agent_state: part(&parts, 15),
             })
         })
         .collect()
@@ -1042,6 +1136,147 @@ mod tests {
         }
     }
 
+    struct PaneFixtureRunner(String);
+
+    impl CommandRunner for PaneFixtureRunner {
+        fn run(&self, _args: &[String]) -> CommandOutput {
+            CommandOutput {
+                exit_code: 0,
+                stdout: self.0.clone(),
+                stderr: String::new(),
+            }
+        }
+    }
+
+    fn fixture_provider(command: &str, title: &str, processes: Result<&str, &str>) -> TmuxProvider {
+        let runner = Arc::new(PaneFixtureRunner(format!(
+            "%9\tsession\t@0\t0\t0\t1\t/dev/ttys001\t100\t/tmp\t{command}\t{title}\t80\t24\t0\t79"
+        )));
+        let mut provider = TmuxProvider::new(runner);
+        provider.identities = Arc::new(AgentIdentityCache::new(
+            std::path::PathBuf::new(),
+            std::time::Duration::ZERO,
+        ));
+        let processes = processes.map(str::to_string).map_err(str::to_string);
+        provider.processes = Arc::new(ProcessCache::with_source(
+            std::time::Duration::ZERO,
+            move || processes.clone(),
+        ));
+        provider
+    }
+
+    #[test]
+    fn version_named_claude_with_empty_title_lists_and_resolves_same_pane() {
+        let provider = fixture_provider(
+            "2.1.296",
+            "",
+            Ok("100 1 /bin/zsh\n101 100 /Users/me/.local/bin/claude"),
+        );
+        assert_eq!(provider.list_agent_panes("session")[0].agent, "claude-code");
+        assert_eq!(
+            provider.resolve_agent_pane_id("session", "claude-code", None, None),
+            Some("%9".to_string())
+        );
+    }
+
+    #[test]
+    fn node_codex_child_lists_and_resolves_same_pane() {
+        let provider = fixture_provider(
+            "node",
+            "",
+            Ok("100 1 /bin/zsh\n101 100 /bin/node\n102 101 /vendor/bin/codex"),
+        );
+        assert_eq!(provider.list_agent_panes("session")[0].agent, "codex");
+        assert_eq!(
+            provider.resolve_agent_pane_id("session", "codex", None, None),
+            Some("%9".to_string())
+        );
+    }
+
+    #[test]
+    fn successful_process_observation_rejects_stale_shell_titles() {
+        let provider = fixture_provider("zsh", "claude coding example", Ok("100 1 /bin/zsh"));
+        assert!(provider.list_agent_panes("session").is_empty());
+        assert_eq!(
+            provider.resolve_agent_pane_id("session", "claude-code", None, None),
+            None
+        );
+        assert_eq!(
+            provider.resolve_agent_pane_id("session", "amp", None, None),
+            None
+        );
+    }
+
+    #[test]
+    fn script_agents_keep_title_fallback_only_for_non_shell_foreground_commands() {
+        let gemini = fixture_provider(
+            "node",
+            "gemini coding",
+            Ok("100 1 /bin/zsh\n101 100 /bin/node"),
+        );
+        assert_eq!(gemini.list_agent_panes("session")[0].agent, "gemini");
+        let stale = fixture_provider("zsh", "gemini coding", Ok("100 1 /bin/zsh"));
+        assert!(stale.list_agent_panes("session").is_empty());
+        let false_codex =
+            fixture_provider("node", "codex", Ok("100 1 /bin/zsh\n101 100 /bin/node"));
+        assert!(false_codex.list_agent_panes("session").is_empty());
+    }
+
+    #[test]
+    fn failed_process_observation_uses_conservative_exact_fallback() {
+        let provider = fixture_provider("claude", "", Err("ps unavailable"));
+        assert_eq!(provider.list_agent_panes("session")[0].agent, "claude-code");
+        let unrelated = fixture_provider("zsh", "example", Err("ps unavailable"));
+        assert!(unrelated.list_agent_panes("session").is_empty());
+    }
+
+    #[test]
+    fn hook_hint_disambiguates_only_confirmed_candidate_panes() {
+        let provider = fixture_provider("claude", "", Ok("100 1 /bin/claude"));
+        let first = provider.client.list_panes(PaneScope::Session("session"))[0].clone();
+        let second = PaneInfo {
+            id: "%10".to_string(),
+            ..first.clone()
+        };
+        let candidates = [first, second];
+        assert_eq!(resolve_candidate_pane(&candidates, None, None), None);
+        assert_eq!(
+            resolve_candidate_pane(
+                &candidates,
+                None,
+                Some(ThreadPaneHint::Active("%10".to_string()))
+            ),
+            Some("%10".to_string())
+        );
+        assert_eq!(
+            resolve_candidate_pane(
+                &candidates,
+                None,
+                Some(ThreadPaneHint::Active("%11".to_string()))
+            ),
+            None
+        );
+        assert_eq!(
+            resolve_candidate_pane(&candidates, None, Some(ThreadPaneHint::Ended)),
+            None
+        );
+    }
+
+    #[test]
+    fn unique_thread_title_disambiguates_confirmed_candidate_panes() {
+        let provider = fixture_provider("claude", "first thread", Ok("100 1 /bin/claude"));
+        let first = provider.client.list_panes(PaneScope::Session("session"))[0].clone();
+        let second = PaneInfo {
+            id: "%10".to_string(),
+            title: "second thread".to_string(),
+            ..first.clone()
+        };
+        assert_eq!(
+            resolve_candidate_pane(&[first, second], Some("second thread"), None),
+            Some("%10".to_string())
+        );
+    }
+
     #[test]
     fn client_focus_uses_tmux_target_client_not_window_active_state() {
         let runner = Arc::new(RecordingRunner::default());
@@ -1065,5 +1300,72 @@ mod tests {
                 "#{client_tty}\t#{session_name}\t#{window_id}\t#{pane_id}".to_string(),
             ],
         );
+    }
+
+    #[test]
+    fn resize_hooks_notify_server_without_shell_width_queries() {
+        let runner = Arc::new(RecordingRunner::default());
+        let provider = TmuxProvider::new(runner.clone());
+        provider.setup_hooks("127.0.0.1", 1234);
+        let calls = runner.calls.lock().unwrap();
+        for (name, endpoint) in [
+            ("client-resized", "/client-resized"),
+            ("after-resize-pane", "/refresh"),
+            ("after-resize-window", "/pane-layout-changed"),
+        ] {
+            let call = calls
+                .iter()
+                .find(|call| {
+                    call.first().is_some_and(|value| value == "set-hook") && call[2] == name
+                })
+                .expect("installed resize hook");
+            let command = &call[3];
+            assert!(command.starts_with("run-shell -b "), "{name}: {command}");
+            assert!(command.contains(endpoint), "{name}: {command}");
+            assert!(!command.contains("list-panes"), "{name}: {command}");
+            assert!(!command.contains("resize-pane"), "{name}: {command}");
+            assert!(!command.contains("xargs"), "{name}: {command}");
+            if name == "after-resize-pane" {
+                assert_eq!(
+                    command,
+                    &delayed_http_hook_command("http://127.0.0.1:1234", "/refresh")
+                );
+                assert!(!command.contains("/pane-layout-changed"));
+                assert!(!command.contains("/client-resized"));
+            }
+        }
+    }
+
+    #[test]
+    fn reveal_pane_switches_client_to_destination_in_one_command() {
+        let runner = Arc::new(RecordingRunner::default());
+        let client = TmuxClient::new(runner.clone());
+        client.reveal_pane("%9", Some("$2"), Some("@4"), Some("/dev/ttys003"));
+        let calls = runner.calls.lock().unwrap();
+        let joined = calls[0].join(" ");
+        assert_eq!(
+            joined,
+            "select-window -t @4 ; select-pane -t %9 ; switch-client -c /dev/ttys003 -t $2 ; select-pane -t %9 -P bg=colour238"
+        );
+        assert_eq!(calls.len(), 2, "only the background flash reset follows");
+        assert_eq!(calls[1][0], "run-shell");
+    }
+
+    #[test]
+    fn hook_state_pane_option_drives_needs_input() {
+        let line = |state: &str| {
+            format!("%9\tsession\t@0\t0\t0\t1\t/dev/ttys001\t100\t/tmp\tcodex\tcodex\t80\t24\t0\t79\t{state}")
+        };
+        assert_eq!(parse_panes(&line("needs-input"))[0].agent_state, "needs-input");
+        // Older tmux output without the column still parses.
+        let legacy = "%9\tsession\t@0\t0\t0\t1\t/dev/ttys001\t100\t/tmp\tcodex\tcodex\t80\t24\t0\t79";
+        assert_eq!(parse_panes(legacy)[0].agent_state, "");
+        assert!(pane_needs_input("needs-input", false));
+        // A hook state overrides a stale binding either way.
+        assert!(!pane_needs_input("running", true));
+        assert!(!pane_needs_input("done", true));
+        // No hooks on this pane: fall back to the binding.
+        assert!(pane_needs_input("", true));
+        assert!(!pane_needs_input("", false));
     }
 }

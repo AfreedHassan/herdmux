@@ -2,7 +2,7 @@ use anyhow::{Context, Result, bail};
 use clap::Parser;
 use crossterm::cursor::Show;
 use crossterm::event::{
-    DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode, KeyEvent, KeyEventKind,
+    DisableFocusChange, DisableMouseCapture, EnableFocusChange, EnableMouseCapture, Event, EventStream, KeyCode, KeyEvent, KeyEventKind,
     KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use crossterm::execute;
@@ -217,6 +217,13 @@ async fn main() -> Result<()> {
                     return Ok(());
                 };
                 let event = event?;
+                if matches!(event, Event::FocusGained | Event::FocusLost) {
+                    if let Some(app) = &mut app {
+                        app.set_sidebar_has_focus(matches!(event, Event::FocusGained));
+                        terminal.draw(app)?;
+                    }
+                    continue;
+                }
                 if let Event::Key(key) = event {
                     if key.kind != KeyEventKind::Press {
                         continue;
@@ -229,6 +236,11 @@ async fn main() -> Result<()> {
                     let Some(app) = &mut app else {
                         continue;
                     };
+                    // A keypress proves the sidebar has focus even if the
+                    // FocusGained report was missed.
+                    if !app.sidebar_has_focus() {
+                        app.set_sidebar_has_focus(true);
+                    }
 
                     handle_key(app, key);
                     terminal.draw(app)?;
@@ -709,7 +721,7 @@ impl TerminalGuard {
     fn enter() -> Result<Self> {
         terminal::enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture, EnableFocusChange)?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
         terminal.hide_cursor()?;
@@ -728,6 +740,7 @@ impl Drop for TerminalGuard {
         let _ = execute!(
             self.terminal.backend_mut(),
             Show,
+            DisableFocusChange,
             DisableMouseCapture,
             LeaveAlternateScreen
         );

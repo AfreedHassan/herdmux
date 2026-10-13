@@ -103,6 +103,14 @@ pub struct App {
     pub panel_focus: PanelFocus,
     pub agent_panel_scope: AgentPanelScope,
     pub focused_agent_idx: usize,
+    agent_focus_valid: bool,
+    client_tty: Option<String>,
+    pending_agent_focus: Option<AgentFocusTarget>,
+    /// The agent this client is actually showing. Independent of the
+    /// keyboard/hover navigation highlight.
+    active_agent: Option<AgentFocusTarget>,
+    /// Whether the sidebar pane itself currently has terminal focus.
+    sidebar_has_focus: bool,
     pub quit_deadline: Option<Instant>,
     pub flash_target: Option<HitTarget>,
     pub flash_deadline: Option<Instant>,
@@ -123,6 +131,26 @@ pub struct App {
     pending_agent_panel_scope_intent: Option<AgentPanelScope>,
     commands: Vec<ClientCommand>,
     pending_launches: Vec<LaunchTarget>,
+}
+
+/// Session + pane, plus the thread when several rows share one pane
+/// (remote agents behind a local ssh pane).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AgentFocusTarget {
+    session: String,
+    pane: String,
+    thread: Option<String>,
+}
+
+impl AgentFocusTarget {
+    fn matches(&self, session: &SessionData, agent: &AgentEvent) -> bool {
+        session.name == self.session
+            && agent.pane_id.as_deref() == Some(self.pane.as_str())
+            && self
+                .thread
+                .as_ref()
+                .is_none_or(|thread| agent.thread_id.as_ref() == Some(thread))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -146,9 +174,18 @@ impl App {
             ts: state.ts,
             spinner_now: 0,
             session_filter: state.session_filter.unwrap_or_default(),
-            panel_focus: PanelFocus::Sessions,
+            panel_focus: if state.agent_panel_scope == AgentPanelScope::All {
+                PanelFocus::Agents
+            } else {
+                PanelFocus::Sessions
+            },
             agent_panel_scope: state.agent_panel_scope,
             focused_agent_idx: 0,
+            agent_focus_valid: true,
+            client_tty: None,
+            pending_agent_focus: None,
+            active_agent: None,
+            sidebar_has_focus: false,
             quit_deadline: None,
             flash_target: None,
             flash_deadline: None,
@@ -248,6 +285,17 @@ impl App {
     pub fn apply_server_message(&mut self, message: ServerMessage) {
         match message {
             ServerMessage::State(state) => {
+                let agent_focus = self.focused_agent().map(|(session, agent)| {
+                    (
+                        session.name.clone(),
+                        agent.agent.clone(),
+                        agent
+                            .thread_id
+                            .clone()
+                            .filter(|id| !id.starts_with("tmux-pane:")),
+                        agent.pane_id.clone(),
+                    )
+                });
                 let previous_focus = self.sidebar_focus.clone();
                 let server_current = state.current_session.clone();
                 self.sessions = state.sessions;
@@ -271,14 +319,59 @@ impl App {
                 }
                 self.clear_background_pending_switch(server_current.as_deref());
                 self.clamp_session_scroll_offset(0);
+                if self.agents_are_primary()
+                    && let Some((session, family, thread, pane)) = agent_focus
+                {
+                    let index =
+                        self.agent_panel_entries()
+                            .position(|(candidate_session, candidate)| {
+                                candidate_session.name == session
+                                    && candidate.agent == family
+                                    && if thread.is_some() {
+                                        candidate.thread_id == thread
+                                    } else {
+                                        candidate.pane_id == pane
+                                    }
+                            });
+                    self.agent_focus_valid = index.is_some();
+                    if let Some(index) = index {
+                        self.focused_agent_idx = index;
+                    }
+                }
+                self.apply_pending_agent_focus();
+                self.sync_highlight_to_active_agent();
             }
-            ServerMessage::YourSession { name, .. } => {
+            ServerMessage::YourSession { name, client_tty } => {
+                self.client_tty = client_tty;
                 self.confirm_local_session(name, true);
             }
             ServerMessage::ActivateSession {
                 name,
                 source_pane_id,
+                target_pane_id,
+                client_tty,
+                target_thread_id,
             } => {
+                if client_tty
+                    .as_ref()
+                    .zip(self.client_tty.as_ref())
+                    .is_some_and(|(incoming, local)| incoming != local)
+                {
+                    return;
+                }
+                if self.agents_are_primary()
+                    && let Some(pane) = target_pane_id
+                {
+                    let target = AgentFocusTarget {
+                        session: name.clone(),
+                        pane,
+                        thread: target_thread_id,
+                    };
+                    self.active_agent = Some(target.clone());
+                    self.pending_agent_focus = Some(target);
+                    self.apply_pending_agent_focus();
+                    self.sync_highlight_to_active_agent();
+                }
                 let previous_activated = self.last_activated_session.replace(name.clone());
                 let from_this_pane = self
                     .pane_identity
@@ -318,9 +411,11 @@ impl App {
 
             match mode {
                 SessionFilterMode::All => true,
-                SessionFilterMode::Active => {
-                    !session.agents.is_empty() || session.agent_state.is_some()
-                }
+                SessionFilterMode::Active => session
+                    .agents
+                    .iter()
+                    .chain(session.agent_state.iter())
+                    .any(|agent| agent.liveness == Some(AgentLiveness::Alive)),
                 SessionFilterMode::Running => {
                     matches!(
                         session.agent_state.as_ref().map(|agent| agent.status),
@@ -459,8 +554,10 @@ impl App {
     pub fn set_sidebar_focus(&mut self, focus: SidebarFocus) {
         self.group_focus_surrogate_for = None;
         self.sidebar_focus = Some(focus);
-        self.panel_focus = PanelFocus::Sessions;
-        self.focused_agent_idx = 0;
+        if !self.agents_are_primary() {
+            self.panel_focus = PanelFocus::Sessions;
+            self.focused_agent_idx = 0;
+        }
         self.session_scroll_follows_focus = true;
     }
 
@@ -468,8 +565,10 @@ impl App {
         self.group_focus_surrogate_for =
             matches!(focus, SidebarFocus::WorktreeGroup(_)).then(|| session_name.to_string());
         self.sidebar_focus = Some(focus);
-        self.panel_focus = PanelFocus::Sessions;
-        self.focused_agent_idx = 0;
+        if !self.agents_are_primary() {
+            self.panel_focus = PanelFocus::Sessions;
+            self.focused_agent_idx = 0;
+        }
         self.session_scroll_follows_focus = true;
     }
 
@@ -514,6 +613,9 @@ impl App {
         match key {
             '1'..='9' => {
                 let index = key.to_digit(10).expect("digit key must parse") as usize;
+                if self.agents_are_primary() {
+                    return;
+                }
                 if let Some(session) = self.display_sessions().get(index.saturating_sub(1)) {
                     self.switch_to_session(session.name.clone());
                 }
@@ -526,6 +628,9 @@ impl App {
             'n' | 'c' => self.commands.push(ClientCommand::NewSession),
             'u' => self.commands.push(ClientCommand::ShowAllSessions),
             'd' => {
+                if self.agents_are_primary() {
+                    return;
+                }
                 if self.panel_focus == PanelFocus::Agents {
                     self.dismiss_focused_agent();
                 } else if let Some(name) = self.focused_session_name().map(str::to_string) {
@@ -534,7 +639,7 @@ impl App {
             }
             'x' => {
                 if self.panel_focus == PanelFocus::Agents {
-                    if !self.kill_focused_agent_pane() {
+                    if !self.kill_focused_agent_pane() && !self.agents_are_primary() {
                         self.open_kill_confirm_for_focus();
                     }
                 } else {
@@ -556,15 +661,31 @@ impl App {
     }
 
     pub fn handle_tab(&mut self, shift: bool) {
+        if self.agents_are_primary() {
+            let count = self.focused_agents_len();
+            if count > 0 {
+                if !self.agent_focus_valid {
+                    self.focused_agent_idx = 0;
+                } else {
+                    self.focused_agent_idx = if shift {
+                        (self.focused_agent_idx + count - 1) % count
+                    } else {
+                        (self.focused_agent_idx + 1) % count
+                    };
+                }
+                self.agent_focus_valid = true;
+            }
+            return;
+        }
         self.switch_to_relative_session(if shift { -1 } else { 1 });
     }
 
     pub fn drain_commands(&mut self) -> Vec<ClientCommand> {
-        self.commands.drain(..).collect()
+        std::mem::take(&mut self.commands)
     }
 
     pub fn drain_launches(&mut self) -> Vec<LaunchTarget> {
-        self.pending_launches.drain(..).collect()
+        std::mem::take(&mut self.pending_launches)
     }
 
     pub fn commands_push(&mut self, command: ClientCommand) {
@@ -601,6 +722,10 @@ impl App {
     }
 
     pub fn scroll_sessions(&mut self, delta: i8, viewport_rows: usize) {
+        if self.agents_are_primary() {
+            self.move_agent_focus(delta);
+            return;
+        }
         let entries = self.display_session_entries();
         let len = entries.len();
         if len == 0 || viewport_rows == 0 {
@@ -643,6 +768,9 @@ impl App {
     }
 
     pub fn focus_sessions_panel(&mut self) {
+        if self.agents_are_primary() {
+            self.toggle_agent_panel_scope();
+        }
         self.panel_focus = PanelFocus::Sessions;
     }
 
@@ -652,6 +780,7 @@ impl App {
             return;
         }
         self.panel_focus = PanelFocus::Agents;
+        self.agent_focus_valid = true;
         self.focused_agent_idx = self.focused_agent_idx.min(agent_count - 1);
     }
 
@@ -660,6 +789,12 @@ impl App {
             AgentPanelScope::Current => AgentPanelScope::All,
             AgentPanelScope::All => AgentPanelScope::Current,
         };
+        self.agent_focus_valid = true;
+        self.panel_focus = if self.agents_are_primary() {
+            PanelFocus::Agents
+        } else {
+            PanelFocus::Sessions
+        };
         self.pending_agent_panel_scope_intent = Some(self.agent_panel_scope);
         self.commands.push(ClientCommand::SetAgentPanelScope {
             scope: self.agent_panel_scope,
@@ -667,7 +802,7 @@ impl App {
         self.focused_agent_idx = self
             .focused_agent_idx
             .min(self.focused_agents_len().saturating_sub(1));
-        if self.focused_agents_len() == 0 {
+        if self.focused_agents_len() == 0 && !self.agents_are_primary() {
             self.panel_focus = PanelFocus::Sessions;
         }
     }
@@ -678,6 +813,11 @@ impl App {
             return;
         }
         let max_idx = agent_count - 1;
+        if !self.agent_focus_valid {
+            self.focused_agent_idx = self.focused_agent_idx.min(max_idx);
+            self.agent_focus_valid = true;
+            return;
+        }
         self.focused_agent_idx =
             (self.focused_agent_idx as i16 + delta as i16).clamp(0, max_idx as i16) as usize;
     }
@@ -748,6 +888,7 @@ impl App {
         }
         self.panel_focus = PanelFocus::Agents;
         self.focused_agent_idx = idx;
+        self.agent_focus_valid = true;
         self.activate_focused_agent();
     }
 
@@ -780,7 +921,59 @@ impl App {
     }
 
     pub fn set_hover_target(&mut self, target: Option<HitTarget>) {
+        if !self.sidebar_has_focus {
+            self.hover_target = None;
+            return;
+        }
+        if self.agents_are_primary()
+            && let Some(HitTarget::Agent(idx)) = target
+            && idx < self.focused_agents_len()
+        {
+            self.focused_agent_idx = idx;
+            self.agent_focus_valid = true;
+        }
         self.hover_target = target;
+    }
+
+    /// Terminal focus changed for the sidebar pane. Losing focus drops any
+    /// hover/keyboard navigation and restores the actual active agent.
+    pub fn set_sidebar_has_focus(&mut self, focused: bool) {
+        self.sidebar_has_focus = focused;
+        if !focused {
+            self.hover_target = None;
+            self.sync_highlight_to_active_agent();
+        }
+    }
+
+    pub fn sidebar_has_focus(&self) -> bool {
+        self.sidebar_has_focus
+    }
+
+    /// Row that should be drawn highlighted in the agent list.
+    pub fn highlighted_agent_idx(&self) -> Option<usize> {
+        if self.sidebar_has_focus || !self.agents_are_primary() {
+            return self.focused_agent().map(|_| self.focused_agent_idx);
+        }
+        self.active_agent_index()
+    }
+
+    pub(crate) fn active_agent_index(&self) -> Option<usize> {
+        let target = self.active_agent.as_ref()?;
+        self.agent_panel_entries()
+            .position(|(session, agent)| target.matches(session, agent))
+    }
+
+    /// While the sidebar is unfocused the highlight always mirrors the
+    /// active agent; navigation only diverges while the sidebar has focus.
+    fn sync_highlight_to_active_agent(&mut self) {
+        if self.sidebar_has_focus || !self.agents_are_primary() {
+            return;
+        }
+        if let Some(index) = self.active_agent_index() {
+            self.focused_agent_idx = index;
+            self.agent_focus_valid = true;
+            self.panel_focus = PanelFocus::Agents;
+        }
     }
 
     pub fn is_modal_open(&self) -> bool {
@@ -943,11 +1136,19 @@ impl App {
             return;
         }
 
+        if self.agent_panel_scope != server_scope {
+            self.panel_focus = if server_scope == AgentPanelScope::All {
+                PanelFocus::Agents
+            } else {
+                PanelFocus::Sessions
+            };
+            self.agent_focus_valid = true;
+        }
         self.agent_panel_scope = server_scope;
         self.focused_agent_idx = self
             .focused_agent_idx
             .min(self.focused_agents_len().saturating_sub(1));
-        if self.focused_agents_len() == 0 {
+        if self.focused_agents_len() == 0 && !self.agents_are_primary() {
             self.panel_focus = PanelFocus::Sessions;
         }
     }
@@ -962,11 +1163,10 @@ impl App {
         self.queue_focus_agent_pane(target);
     }
 
+    /// The server reveals the pane and switches this client in one tmux
+    /// command list, so no separate `SwitchSession` is queued here (that
+    /// briefly exposed the destination session's previously active pane).
     fn queue_focus_agent_pane(&mut self, target: AgentPaneTarget) {
-        self.commands.push(ClientCommand::SwitchSession {
-            name: target.session.clone(),
-            client_tty: None,
-        });
         self.commands.push(ClientCommand::FocusAgentPane {
             session: target.session,
             agent: target.agent,
@@ -992,7 +1192,7 @@ impl App {
         if self.focused_agent_idx >= agent_count.saturating_sub(1) && agent_count > 1 {
             self.focused_agent_idx = agent_count - 2;
         }
-        if agent_count <= 1 {
+        if agent_count <= 1 && !self.agents_are_primary() {
             self.panel_focus = PanelFocus::Sessions;
         }
     }
@@ -1199,11 +1399,6 @@ impl App {
         (len > 0).then_some((focused_idx.unwrap_or(0), len))
     }
 
-    fn focused_session_data(&self) -> Option<&SessionData> {
-        let focused = self.focused_session_name()?;
-        self.sessions.iter().find(|session| session.name == focused)
-    }
-
     fn focused_kill_target(&self) -> Option<KillTarget> {
         match self.sidebar_focus.as_ref()? {
             SidebarFocus::Session(name) => Some(KillTarget::Session(name.clone())),
@@ -1254,33 +1449,56 @@ impl App {
         blocks
     }
 
+    pub(crate) fn visible_agents<'a>(
+        &'a self,
+        session: &'a SessionData,
+    ) -> impl Iterator<Item = &'a AgentEvent> {
+        session.agents.iter().filter(|agent| {
+            self.session_filter != SessionFilterMode::Active
+                || agent.liveness == Some(AgentLiveness::Alive)
+        })
+    }
+
+    pub(crate) fn agent_panel_entries(&self) -> impl Iterator<Item = (&SessionData, &AgentEvent)> {
+        self.filtered_sessions()
+            .filter(|session| {
+                self.agent_panel_scope == AgentPanelScope::All
+                    || self.focused_session_name() == Some(session.name.as_str())
+            })
+            .flat_map(|session| {
+                self.visible_agents(session)
+                    .map(move |agent| (session, agent))
+            })
+    }
+
     fn focused_agents_len(&self) -> usize {
-        match self.agent_panel_scope {
-            AgentPanelScope::Current => self
-                .focused_session_data()
-                .map(|session| session.agents.len())
-                .unwrap_or(0),
-            AgentPanelScope::All => self
-                .sessions
-                .iter()
-                .map(|session| session.agents.len())
-                .sum(),
+        self.agent_panel_entries().count()
+    }
+
+    pub(crate) fn agents_are_primary(&self) -> bool {
+        self.agent_panel_scope == AgentPanelScope::All
+    }
+
+    fn apply_pending_agent_focus(&mut self) {
+        let Some(target) = self.pending_agent_focus.as_ref() else {
+            return;
+        };
+        let index = self
+            .agent_panel_entries()
+            .position(|(session, agent)| target.matches(session, agent));
+        if let Some(index) = index {
+            self.focused_agent_idx = index;
+            self.agent_focus_valid = true;
+            self.panel_focus = PanelFocus::Agents;
+            self.pending_agent_focus = None;
         }
     }
 
-    fn focused_agent(&self) -> Option<(&SessionData, &AgentEvent)> {
-        match self.agent_panel_scope {
-            AgentPanelScope::Current => {
-                let session = self.focused_session_data()?;
-                let agent = session.agents.get(self.focused_agent_idx)?;
-                Some((session, agent))
-            }
-            AgentPanelScope::All => self
-                .sessions
-                .iter()
-                .flat_map(|session| session.agents.iter().map(move |agent| (session, agent)))
-                .nth(self.focused_agent_idx),
+    pub(crate) fn focused_agent(&self) -> Option<(&SessionData, &AgentEvent)> {
+        if !self.agent_focus_valid {
+            return None;
         }
+        self.agent_panel_entries().nth(self.focused_agent_idx)
     }
 }
 
@@ -1385,7 +1603,335 @@ mod tests {
             unseen: None,
             pane_id: None,
             liveness: None,
+            location: None,
         }
+    }
+
+    #[test]
+    fn all_agents_are_primary_and_shortcuts_target_individual_panes() {
+        let state = ServerState {
+            agent_panel_scope: AgentPanelScope::All,
+            sessions: vec![SessionData {
+                agents: (1..=3)
+                    .map(|index| AgentEvent {
+                        pane_id: Some(format!("%{index}")),
+                        liveness: Some(AgentLiveness::Alive),
+                        ..agent_without_pane("codex", AgentStatus::Idle)
+                    })
+                    .collect(),
+                ..session("liquid", "/liquid", false)
+            }],
+            ..empty_state(12)
+        };
+        let mut app = App::from_state(state);
+        assert_eq!(app.panel_focus, PanelFocus::Agents);
+        app.set_focused_session("liquid");
+        assert_eq!(app.panel_focus, PanelFocus::Agents);
+        app.handle_key_char('2');
+        assert!(app.drain_commands().is_empty());
+        app.click_agent(1);
+        assert!(app.drain_commands().iter().any(|command| matches!(command,
+            ClientCommand::FocusAgentPane { pane_id: Some(pane), .. } if pane == "%2")));
+        app.handle_tab(false);
+        assert!(app.drain_commands().is_empty());
+        app.activate_focused_item();
+        assert!(app.drain_commands().iter().any(|command| matches!(command,
+            ClientCommand::FocusAgentPane { pane_id: Some(pane), .. } if pane == "%3")));
+        app.scroll_sessions(-1, 10);
+        assert_eq!(app.focused_agent_idx, 1);
+        app.focus_sessions_panel();
+        assert_eq!(app.agent_panel_scope, AgentPanelScope::Current);
+        assert_eq!(app.panel_focus, PanelFocus::Sessions);
+    }
+
+    #[test]
+    fn primary_selection_follows_identity_and_exit_requires_a_new_selection() {
+        let mut state = ServerState {
+            agent_panel_scope: AgentPanelScope::All,
+            sessions: vec![SessionData {
+                agents: (1..=3)
+                    .map(|index| AgentEvent {
+                        pane_id: Some(format!("%{index}")),
+                        thread_id: Some(format!("thread-{index}")),
+                        liveness: Some(AgentLiveness::Alive),
+                        ..agent_without_pane("codex", AgentStatus::Idle)
+                    })
+                    .collect(),
+                ..session("liquid", "/liquid", false)
+            }],
+            ..empty_state(12)
+        };
+        let mut app = App::from_state(state.clone());
+        app.move_agent_focus(2);
+        state.sessions[0].agents.reverse();
+        state.sessions[0].agents[0].thread_name = Some("New name".into());
+        app.apply_server_message(ServerMessage::State(state.clone()));
+        assert_eq!(app.focused_agent_idx, 0);
+        assert_eq!(
+            app.focused_agent().unwrap().1.pane_id.as_deref(),
+            Some("%3")
+        );
+        state.sessions[0].agents.remove(0);
+        app.apply_server_message(ServerMessage::State(state.clone()));
+        app.activate_focused_agent();
+        assert!(app.drain_commands().is_empty());
+        app.handle_key_char('x');
+        assert_eq!(app.modal, Modal::None);
+        app.apply_server_message(ServerMessage::State(state));
+        assert!(app.focused_agent().is_none());
+        app.move_agent_focus(1);
+        assert!(app.focused_agent().is_some());
+        app.click_agent(1);
+        assert!(app.drain_commands().iter().any(|command| matches!(command,
+            ClientCommand::FocusAgentPane { pane_id: Some(pane), .. } if pane == "%1")));
+    }
+
+    #[test]
+    fn active_pane_updates_exact_agent_immediately_and_ignores_other_clients() {
+        let mut state = ServerState {
+            agent_panel_scope: AgentPanelScope::All,
+            sessions: vec![SessionData {
+                agents: (1..=3)
+                    .map(|index| AgentEvent {
+                        pane_id: Some(format!("%{index}")),
+                        liveness: Some(AgentLiveness::Alive),
+                        ..agent_without_pane("codex", AgentStatus::Idle)
+                    })
+                    .collect(),
+                ..session("liquid", "/liquid", false)
+            }],
+            ..empty_state(12)
+        };
+        let mut app = App::from_state(state.clone());
+        app.apply_server_message(ServerMessage::YourSession {
+            name: "liquid".into(),
+            client_tty: Some("tty-1".into()),
+        });
+        app.apply_server_message(ServerMessage::ActivateSession {
+            name: "liquid".into(),
+            source_pane_id: None,
+            target_pane_id: Some("%3".into()),
+            client_tty: Some("tty-1".into()),
+            target_thread_id: None,
+        });
+        assert_eq!(app.focused_agent_idx, 2);
+        app.apply_server_message(ServerMessage::ActivateSession {
+            name: "liquid".into(),
+            source_pane_id: None,
+            target_pane_id: Some("%1".into()),
+            client_tty: Some("tty-2".into()),
+            target_thread_id: None,
+        });
+        assert_eq!(app.focused_agent_idx, 2);
+        app.apply_server_message(ServerMessage::ActivateSession {
+            name: "liquid".into(),
+            source_pane_id: None,
+            target_pane_id: Some("%4".into()),
+            client_tty: Some("tty-1".into()),
+            target_thread_id: None,
+        });
+        state.sessions[0].agents.push(AgentEvent {
+            pane_id: Some("%4".into()),
+            liveness: Some(AgentLiveness::Alive),
+            ..agent_without_pane("codex", AgentStatus::Idle)
+        });
+        app.apply_server_message(ServerMessage::State(state));
+        assert_eq!(app.focused_agent_idx, 3);
+        assert!(app.drain_commands().is_empty());
+    }
+
+    fn three_agent_app() -> (App, ServerState) {
+        let state = ServerState {
+            agent_panel_scope: AgentPanelScope::All,
+            sessions: vec![SessionData {
+                agents: (1..=3)
+                    .map(|index| AgentEvent {
+                        pane_id: Some(format!("%{index}")),
+                        liveness: Some(AgentLiveness::Alive),
+                        ..agent_without_pane("codex", AgentStatus::Idle)
+                    })
+                    .collect(),
+                ..session("liquid", "/liquid", false)
+            }],
+            ..empty_state(12)
+        };
+        let mut app = App::from_state(state.clone());
+        app.apply_server_message(ServerMessage::YourSession {
+            name: "liquid".into(),
+            client_tty: Some("tty-1".into()),
+        });
+        app.apply_server_message(ServerMessage::ActivateSession {
+            name: "liquid".into(),
+            source_pane_id: None,
+            target_pane_id: Some("%2".into()),
+            client_tty: Some("tty-1".into()),
+            target_thread_id: None,
+        });
+        app.drain_commands();
+        (app, state)
+    }
+
+    #[test]
+    fn rows_sharing_a_proxy_pane_highlight_by_thread() {
+        let state = ServerState {
+            agent_panel_scope: AgentPanelScope::All,
+            sessions: vec![SessionData {
+                agents: ["a1", "b2", "c3"]
+                    .iter()
+                    .map(|thread| AgentEvent {
+                        pane_id: Some("%83".into()),
+                        thread_id: Some((*thread).into()),
+                        liveness: Some(AgentLiveness::Alive),
+                        ..agent_without_pane("claude-code", AgentStatus::Idle)
+                    })
+                    .collect(),
+                ..session("liquid", "/liquid", false)
+            }],
+            ..empty_state(12)
+        };
+        let mut app = App::from_state(state.clone());
+        app.apply_server_message(ServerMessage::YourSession {
+            name: "liquid".into(),
+            client_tty: Some("tty-1".into()),
+        });
+        let activate = |thread: &str| ServerMessage::ActivateSession {
+            name: "liquid".into(),
+            source_pane_id: None,
+            target_pane_id: Some("%83".into()),
+            client_tty: Some("tty-1".into()),
+            target_thread_id: Some(thread.into()),
+        };
+        app.apply_server_message(activate("b2"));
+        assert_eq!(app.highlighted_agent_idx(), Some(1));
+        app.apply_server_message(activate("c3"));
+        assert_eq!(app.highlighted_agent_idx(), Some(2));
+        app.apply_server_message(ServerMessage::State(state));
+        assert_eq!(app.highlighted_agent_idx(), Some(2));
+        assert!(app.drain_commands().is_empty());
+    }
+
+    #[test]
+    fn unfocused_sidebar_always_highlights_active_agent() {
+        let (mut app, state) = three_agent_app();
+        assert_eq!(app.highlighted_agent_idx(), Some(1));
+        // Hover and refreshes while unfocused never move the highlight.
+        app.set_hover_target(Some(HitTarget::Agent(2)));
+        assert_eq!(app.highlighted_agent_idx(), Some(1));
+        assert!(app.hover_target.is_none());
+        app.apply_server_message(ServerMessage::State(state.clone()));
+        assert_eq!(app.highlighted_agent_idx(), Some(1));
+        // A stray navigation index while unfocused is not drawn.
+        app.focused_agent_idx = 0;
+        assert_eq!(app.highlighted_agent_idx(), Some(1));
+        app.apply_server_message(ServerMessage::State(state));
+        assert_eq!(app.focused_agent_idx, 1);
+        assert!(app.drain_commands().is_empty());
+    }
+
+    #[test]
+    fn focused_navigation_is_separate_and_restored_on_blur() {
+        let (mut app, state) = three_agent_app();
+        app.set_sidebar_has_focus(true);
+        app.set_hover_target(Some(HitTarget::Agent(2)));
+        assert_eq!(app.highlighted_agent_idx(), Some(2));
+        app.move_agent_focus(-1);
+        app.move_agent_focus(-1);
+        assert_eq!(app.highlighted_agent_idx(), Some(0));
+        app.handle_tab(false);
+        assert_eq!(app.highlighted_agent_idx(), Some(1));
+        app.handle_tab(false);
+        // Refresh while focused keeps the navigation row.
+        app.apply_server_message(ServerMessage::State(state));
+        assert_eq!(app.highlighted_agent_idx(), Some(2));
+        assert!(app.drain_commands().is_empty());
+        app.set_sidebar_has_focus(false);
+        assert_eq!(app.highlighted_agent_idx(), Some(1));
+        assert_eq!(app.focused_agent_idx, 1);
+        assert!(app.hover_target.is_none());
+        assert!(app.drain_commands().is_empty());
+    }
+
+    #[test]
+    fn selecting_agent_focuses_destination_without_separate_session_switch() {
+        let (mut app, _) = three_agent_app();
+        app.set_sidebar_has_focus(true);
+        app.click_agent(2);
+        let commands = app.drain_commands();
+        assert!(!commands
+            .iter()
+            .any(|command| matches!(command, ClientCommand::SwitchSession { .. })));
+        assert!(matches!(commands.as_slice(),
+            [ClientCommand::FocusAgentPane { pane_id: Some(pane), .. }] if pane == "%3"));
+        app.move_agent_focus(-1);
+        app.activate_focused_item();
+        assert!(matches!(app.drain_commands().as_slice(),
+            [ClientCommand::FocusAgentPane { pane_id: Some(pane), .. }] if pane == "%2"));
+    }
+
+    #[test]
+    fn active_filter_keeps_only_sessions_with_live_agent_presence() {
+        let state = ServerState {
+            session_filter: Some(SessionFilterMode::Active),
+            sessions: vec![
+                session("resume-cv", "/resume", false),
+                SessionData {
+                    agents: vec![AgentEvent {
+                        liveness: Some(AgentLiveness::Alive),
+                        pane_id: Some("%7".into()),
+                        ..agent_without_pane("claude-code", AgentStatus::Done)
+                    }],
+                    ..session("liquid", "/liquid", false)
+                },
+                SessionData {
+                    agents: vec![agent_without_pane("claude-code", AgentStatus::Running)],
+                    ..session("unknown", "/unknown", false)
+                },
+                SessionData {
+                    agents: vec![AgentEvent {
+                        liveness: Some(AgentLiveness::Exited),
+                        ..agent_without_pane("claude-code", AgentStatus::Done)
+                    }],
+                    ..session("exited", "/exited", false)
+                },
+            ],
+            ..empty_state(12)
+        };
+        let app = App::from_state(state);
+        assert_eq!(
+            app.display_sessions()
+                .iter()
+                .map(|session| session.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["liquid"]
+        );
+    }
+
+    #[test]
+    fn active_filter_keeps_idle_live_aggregate_agent() {
+        let state = ServerState {
+            session_filter: Some(SessionFilterMode::Active),
+            sessions: vec![SessionData {
+                agent_state: Some(AgentEvent {
+                    liveness: Some(AgentLiveness::Alive),
+                    ..agent_without_pane("codex", AgentStatus::Idle)
+                }),
+                ..session("liquid", "/liquid", false)
+            }],
+            ..empty_state(12)
+        };
+        assert_eq!(App::from_state(state).display_sessions().len(), 1);
+    }
+
+    #[test]
+    fn filter_toggle_keeps_all_sessions_available() {
+        let mut app = App::from_state(ServerState {
+            session_filter: Some(SessionFilterMode::Active),
+            sessions: vec![session("resume-cv", "/resume", false)],
+            ..empty_state(12)
+        });
+        app.handle_key_char('f');
+        app.handle_key_char('f');
+        assert_eq!(app.display_sessions().len(), 1);
     }
 
     #[test]

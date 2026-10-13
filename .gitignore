@@ -5,3 +5,10 @@ target
 *.log
 .DS_Store
 .agents/skills/grill-me/
+
+# Locally built binaries installed by the plugin
+bin/opensessions-server
+bin/opensessions-sidebar
+bin/lazydiff
+bin/.opensessions-version
+bin/.*.new

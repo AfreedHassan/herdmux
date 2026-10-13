@@ -16,7 +16,10 @@ strip = "symbols"
 incremental = false
 
 [profile.release-dev]
-inherits = "release"
-opt-level = 3
+inherits = "dev"
+opt-level = 1
+lto = "off"
+incremental = true
+codegen-units = 256
 strip = false
 debug = "line-tables-only"

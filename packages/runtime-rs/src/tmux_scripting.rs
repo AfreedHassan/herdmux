@@ -155,6 +155,24 @@ fn tmux_double_quote(value: &str) -> String {
         .replace('$', "\\$")
 }
 
+/// tmux-native `window-layout-changed` hook that snaps the sidebar back to
+/// `@opensessions_width` with no shell or server round-trip. tmux does not
+/// re-run hooks for layout changes made by a hook, and the stored layout
+/// guard stops a retry when the width is unattainable, so it cannot loop.
+pub fn sidebar_width_layout_hook() -> String {
+    let sidebar_width =
+        format!("#{{P:#{{?#{{==:#{{pane_title}},{SIDEBAR_PANE_TITLE}}},#{{pane_width}},}}}}");
+    let sidebar_id =
+        format!("#{{P:#{{?#{{==:#{{pane_title}},{SIDEBAR_PANE_TITLE}}},#{{pane_id}},}}}}");
+    let width = format!("#{{{SIDEBAR_WIDTH_OPTION}}}");
+    let condition = format!(
+        "#{{&&:#{{!=:{width},}},#{{&&:#{{!=:{sidebar_width},}},#{{&&:#{{!=:{sidebar_width},{width}}},#{{!=:#{{window_layout}},#{{@opensessions_layout}}}}}}}}}}"
+    );
+    format!(
+        "if-shell -F '{condition}' {{ run-shell -C 'resize-pane -t {sidebar_id} -x {width}' ; set-option -wF @opensessions_layout '#{{window_layout}}' }}"
+    )
+}
+
 pub fn sidebar_width_repair_pipeline() -> String {
     resize_sidebar_width_pipeline(sidebar_width_repair_filter())
 }
@@ -171,19 +189,17 @@ pub fn close_orphan_sidebar_pipeline() -> String {
 
 pub fn pane_exited_hook_command(base: &str) -> String {
     format!(
-        "{} ; {} ; {}",
+        "{} ; {}",
         run_shell_command(&close_orphan_sidebar_pipeline(), false),
-        http_hook_command(base, "/pane-exited", None, false),
-        run_shell_command(&sidebar_width_repair_pipeline(), true),
+        http_hook_command(base, "/pane-exited", None, true),
     )
 }
 
 pub fn pane_died_hook_command(base: &str) -> String {
     format!(
-        "{} ; {} ; {}",
+        "{} ; {}",
         run_shell_command(&close_dead_content_pane_pipeline(), false),
-        http_hook_command(base, "/pane-exited", None, false),
-        run_shell_command(&sidebar_width_repair_pipeline(), true),
+        http_hook_command(base, "/pane-exited", None, true),
     )
 }
 
@@ -299,6 +315,33 @@ mod tests {
                 || hook.contains("kill-pane -t \"\\$pane\"")
         );
         assert!(hook.contains("-X POST http://127.0.0.1:1234/pane-exited"));
-        assert!(hook.ends_with(&run_shell_command(&sidebar_width_repair_pipeline(), true)));
+        assert!(!hook.contains("xargs"));
+        assert!(!hook.contains("show-option -gqv @opensessions_width"));
+        assert!(hook.ends_with(&http_hook_command(
+            "http://127.0.0.1:1234",
+            "/pane-exited",
+            None,
+            true
+        )));
     }
+
+    #[test]
+    fn pane_died_hook_keeps_exit_cleanup_without_shell_width_queries() {
+        let hook = pane_died_hook_command("http://127.0.0.1:1234");
+        assert!(hook.contains("kill-window"));
+        assert!(hook.contains("/pane-exited"));
+        assert!(!hook.contains("xargs"));
+        assert!(!hook.contains("show-option -gqv @opensessions_width"));
+    }
+
+    #[test]
+    fn sidebar_width_layout_hook_is_tmux_native_and_guarded() {
+        let hook = sidebar_width_layout_hook();
+        assert!(hook.starts_with("if-shell -F '"));
+        assert!(!hook.contains("list-panes") && !hook.contains("xargs") && !hook.contains("curl"));
+        assert!(hook.contains("resize-pane -t #{P:#{?#{==:#{pane_title},opensessions-sidebar},#{pane_id},}} -x #{@opensessions_width}"));
+        assert!(hook.contains("#{!=:#{window_layout},#{@opensessions_layout}}"));
+        assert!(hook.contains("set-option -wF @opensessions_layout '#{window_layout}'"));
+    }
+
 }

@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+"""Fuzzy-pick a live agent from OpenSessions and jump straight to its pane."""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+from urllib.error import URLError
+from urllib.request import urlopen
+
+API = "http://{host}:{port}/api/agents"
+STATUS_GLYPH = {
+    "running": "\033[33m●\033[0m",
+    "waiting": "\033[1;31m?\033[0m",
+    "done": "\033[32m✓\033[0m",
+    "error": "\033[31m✗\033[0m",
+    "idle": "\033[2m○\033[0m",
+}
+
+
+def server_endpoint() -> tuple[str, str]:
+    """Host/port the way the tmux plugin resolves them (env, tmux env,
+    per-server key), by sourcing its side-effect-free server-common.sh."""
+    if os.environ.get("OPENSESSIONS_PORT"):
+        return os.environ.get("OPENSESSIONS_HOST", "127.0.0.1"), os.environ["OPENSESSIONS_PORT"]
+    candidates = [
+        os.environ.get("OPENSESSIONS_DIR", ""),
+        subprocess.run(["tmux", "show-environment", "-g", "OPENSESSIONS_DIR"],
+                       capture_output=True, text=True).stdout.partition("=")[2].strip(),
+        str(Path(__file__).resolve().parents[2]),
+        str(Path.home() / ".tmux/plugins/opensessions"),
+    ]
+    for root in filter(None, candidates):
+        common = Path(root) / "integrations/tmux-plugin/scripts/server-common.sh"
+        if common.is_file():
+            result = subprocess.run(["sh", "-c", '. "$1"; printf "%s %s" "$HOST" "$PORT"', "sh", str(common)],
+                                    capture_output=True, text=True)
+            parts = result.stdout.split()
+            if result.returncode == 0 and len(parts) == 2:
+                return parts[0], parts[1]
+    return "127.0.0.1", "7391"
+
+
+def fetch_agents(host: str, port: str) -> list[dict]:
+    with urlopen(API.format(host=host, port=port), timeout=2) as response:
+        payload = json.load(response)
+    agents = payload.get("agents") if isinstance(payload, dict) else None
+    if not isinstance(agents, list):
+        raise ValueError("unexpected /api/agents payload")
+    return [
+        agent
+        for agent in agents
+        if isinstance(agent, dict)
+        and agent.get("liveness") == "alive"
+        and isinstance(agent.get("paneId"), str)
+    ]
+
+
+SESSIONS = Path.home() / ".ai/sessions"
+
+
+def binding_activity() -> tuple[dict[str, float], dict[str, float]]:
+    """Last activity (epoch s) per thread id and per pane, from ~/.ai/sessions
+    bindings: the newer of `updated_at` and the transcript's mtime."""
+    by_thread: dict[str, float] = {}
+    by_pane: dict[str, float] = {}
+    for path in SESSIONS.glob("*.json"):
+        if not path.name.startswith(("claude-", "codex-")):
+            continue
+        try:
+            record = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(record, dict):
+            continue
+        stamp = 0.0
+        try:
+            stamp = datetime.fromisoformat(str(record.get("updated_at"))).timestamp()
+        except ValueError:
+            pass
+        transcript = record.get("transcript")
+        if isinstance(transcript, str):
+            try:
+                stamp = max(stamp, os.stat(transcript).st_mtime)
+            except OSError:
+                pass
+        if isinstance(record.get("id"), str):
+            by_thread[record["id"]] = max(by_thread.get(record["id"], 0), stamp)
+        if isinstance(record.get("pane"), str):
+            by_pane[record["pane"]] = max(by_pane.get(record["pane"], 0), stamp)
+    return by_thread, by_pane
+
+
+def by_recency(agents: list[dict]) -> list[dict]:
+    by_thread, by_pane = binding_activity()
+
+    def recency(agent: dict) -> float:
+        ts = agent.get("ts")
+        tracked = ts / 1000 if isinstance(ts, (int, float)) and ts > 0 else 0
+        thread = agent.get("threadId")
+        native = by_thread.get(thread, 0) if isinstance(thread, str) else 0
+        return max(tracked, native or by_pane.get(agent["paneId"], 0))
+
+    # Agents waiting on the user come first, then everything by recency.
+    return sorted(
+        agents,
+        key=lambda agent: (agent.get("status") == "waiting", recency(agent)),
+        reverse=True,
+    )
+
+
+def rows(agents: list[dict]) -> list[str]:
+    """`<pane>\t<name>  <dim session>` with names padded so sessions align."""
+    names = [str(agent.get("name") or "Unnamed").replace("\t", " ") for agent in agents]
+    width = min(max((len(name) for name in names), default=0), 48)
+    lines = []
+    for agent, name in zip(agents, names):
+        if len(name) > width:
+            name = name[: width - 1] + "…"
+        session = str(agent.get("session") or "")
+        glyph = STATUS_GLYPH.get(str(agent.get("status") or ""), "\033[2m·\033[0m")
+        lines.append(f"{agent['paneId']}\t{glyph} {name.ljust(width)}  \033[2m{session}\033[0m")
+    return lines
+
+
+def pick(lines: list[str]) -> str | None:
+    result = subprocess.run(
+        ["fzf", "--reverse", "--ansi", "--no-sort", "--delimiter=\t", "--with-nth=2.."],
+        input="\n".join(lines),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout.split("\t", 1)[0].strip()
+
+
+def jump(pane_id: str, client: str | None) -> None:
+    """Select the pane in its session, then switch the client by session id in
+    one tmux command list so no intermediate pane is shown."""
+    location = subprocess.run(
+        ["tmux", "display-message", "-p", "-t", pane_id, "#{session_id} #{window_id}"],
+        capture_output=True,
+        text=True,
+    )
+    parts = location.stdout.split()
+    if location.returncode != 0 or len(parts) != 2:
+        raise RuntimeError(f"pane {pane_id} is gone")
+    session_id, window_id = parts
+    switch = ["switch-client", "-c", client, "-t", session_id] if client else ["switch-client", "-t", session_id]
+    subprocess.run(
+        ["tmux", "select-window", "-t", window_id, ";", "select-pane", "-t", pane_id, ";",
+         *switch, ";", "select-pane", "-t", pane_id, "-P", "bg=colour238"],
+        check=True,
+    )
+    subprocess.run(
+        ["tmux", "run-shell", "-b", f"sleep 0.18; tmux select-pane -t '{pane_id}' -P default"],
+        check=False,
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--client", help="tmux client to switch (default: current)")
+    args = parser.parse_args()
+    if not args.client or "#{" in args.client:
+        # display-popup does not format-expand its command; ask tmux instead.
+        current = subprocess.run(
+            ["tmux", "display-message", "-p", "#{client_name}"], capture_output=True, text=True
+        ).stdout.strip()
+        args.client = current or None
+    host, port = server_endpoint()
+    try:
+        agents = fetch_agents(host, port)
+    except (URLError, OSError, ValueError) as error:
+        print(f"OpenSessions agents unavailable: {error}", file=sys.stderr)
+        input("Press Enter to close")
+        return 1
+    if not agents:
+        print("No live agents.")
+        input("Press Enter to close")
+        return 0
+    pane = pick(rows(by_recency(agents)))
+    if pane is None:
+        return 0
+    try:
+        jump(pane, args.client)
+    except (RuntimeError, subprocess.CalledProcessError) as error:
+        print(f"Could not jump: {error}", file=sys.stderr)
+        input("Press Enter to close")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

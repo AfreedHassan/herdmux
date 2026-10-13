@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::protocol::SessionFilterMode;
+use crate::protocol::{AgentPanelScope, SessionFilterMode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -35,6 +35,8 @@ pub struct OpensessionsConfig {
     pub detail_panel_height: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_filter: Option<SessionFilterMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_panel_scope: Option<AgentPanelScope>,
 }
 
 pub fn config_path_from_home(home: &Path) -> PathBuf {
@@ -99,6 +101,7 @@ fn update_map(updates: OpensessionsConfig) -> Map<String, Value> {
     insert_option(&mut map, "keybinding", updates.keybinding);
     insert_option(&mut map, "detailPanelHeight", updates.detail_panel_height);
     insert_option(&mut map, "sessionFilter", updates.session_filter);
+    insert_option(&mut map, "agentPanelScope", updates.agent_panel_scope);
 
     map
 }

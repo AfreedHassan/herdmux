@@ -32,6 +32,8 @@ pub struct AgentPane {
     pub active: bool,
     pub thread_id: Option<String>,
     pub thread_name: Option<String>,
+    /// The agent is blocked on the user (question, plan or permission).
+    pub needs_input: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -145,6 +147,14 @@ pub trait MuxProvider: Send + Sync {
     }
 
     fn focus_pane(&self, _pane_id: &str) {}
+    /// (tty, pane id, session) for every pane, used to map ssh proxies.
+    fn pane_ttys(&self) -> Vec<(String, String, String)> {
+        Vec::new()
+    }
+    /// Show `pane_id` on the given client with no intermediate pane visible.
+    fn reveal_pane(&self, pane_id: &str, _client_tty: Option<&str>) {
+        self.focus_pane(pane_id);
+    }
     fn kill_pane(&self, _pane_id: &str) {}
 
     fn get_all_pane_counts(&self) -> HashMap<String, u32> {

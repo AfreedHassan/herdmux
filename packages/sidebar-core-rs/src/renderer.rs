@@ -10,7 +10,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::{App, DisplaySessionEntry, Modal};
 use crate::generated::protocol::{
-    AgentEvent, AgentPanelScope, AgentStatus, MetadataTone, SessionData,
+    AgentEvent, AgentPanelScope, AgentStatus, MetadataTone, SessionData, SessionFilterMode,
 };
 use crate::session_display::worktree_group_key;
 
@@ -74,20 +74,29 @@ pub(crate) fn build_model(app: &App, width: usize, height: usize) -> RenderModel
     let layout = sidebar_layout(app, width as u16, height as u16);
     let mut lines = vec![header(app, &palette, width), StyledLine::blank()];
     let detail_separator_row = layout.detail_separator.y as usize;
-    let session_scrollbar = render_sessions(app, &palette, &mut lines, detail_separator_row, width);
+    let session_scrollbar = if app.agents_are_primary() {
+        render_primary_agents(app, &palette, &mut lines, detail_separator_row, width)
+    } else {
+        render_sessions(app, &palette, &mut lines, detail_separator_row, width)
+    };
 
     while lines.len() < detail_separator_row {
         lines.push(StyledLine::blank());
     }
     lines.push(separator(&palette, width));
     let footer_separator_row = layout.footer_separator.y as usize;
-    let agent_scrollbar = render_detail(app, &palette, &mut lines, footer_separator_row, width);
+    let agent_scrollbar = if app.agents_are_primary() {
+        render_selected_agent(app, &palette, &mut lines, footer_separator_row, width);
+        None
+    } else {
+        render_detail(app, &palette, &mut lines, footer_separator_row, width)
+    };
 
     while lines.len() < footer_separator_row {
         lines.push(StyledLine::blank());
     }
     lines.push(separator(&palette, width));
-    let [footer_top, footer_bottom] = footer(&palette, width);
+    let [footer_top, footer_bottom] = footer(app, &palette, width);
     lines.push(footer_top);
     lines.push(footer_bottom);
     while lines.len() < height {
@@ -120,8 +129,13 @@ fn sidebar_layout(app: &App, width: u16, height: u16) -> SidebarLayout {
     const FOOTER_SEPARATOR_ROWS: u16 = 1;
     const FOOTER_ROWS: u16 = 2;
 
+    let detail_height = if app.agents_are_primary() {
+        (app.detail_panel_height as u16).min(6).min(height / 4)
+    } else {
+        app.detail_panel_height as u16
+    };
     let detail_separator_row = height
-        .saturating_sub(FOOTER_SEPARATOR_ROWS + FOOTER_ROWS + app.detail_panel_height as u16)
+        .saturating_sub(FOOTER_SEPARATOR_ROWS + FOOTER_ROWS + detail_height)
         .saturating_sub(DETAIL_SEPARATOR_ROWS)
         .max(HEADER_ROWS);
     let footer_separator_row = height
@@ -301,6 +315,11 @@ struct ScrollbarSpec {
 }
 
 fn header(app: &App, palette: &Palette, width: usize) -> StyledLine {
+    if app.agents_are_primary() {
+        let mut lines = Vec::new();
+        render_agent_panel_header(app, palette, &mut lines, 1, width);
+        return lines.remove(0);
+    }
     let sessions = app.filtered_sessions().count();
     let running = app
         .sessions
@@ -355,6 +374,140 @@ fn header(app: &App, palette: &Palette, width: usize) -> StyledLine {
         }
     }
     line.end(CellStyle::fg(palette.white))
+}
+
+fn render_primary_agents(
+    app: &App,
+    palette: &Palette,
+    lines: &mut Vec<StyledLine>,
+    max_lines: usize,
+    width: usize,
+) -> Option<ScrollbarSpec> {
+    let entries = all_agent_entries(app);
+    let available = max_lines.saturating_sub(lines.len());
+    if entries.is_empty() || available == 0 {
+        if available > 0 {
+            let mut line = StyledLine::blank();
+            line.push(
+                if app.initializing {
+                    " checking agents…"
+                } else {
+                    " no live agents"
+                },
+                palette.overlay0,
+            );
+            lines.push(line.end(CellStyle::fg(palette.white)));
+        }
+        return None;
+    }
+    let visible = (available / 2).max(1);
+    let first = app
+        .highlighted_agent_idx()
+        .unwrap_or(app.focused_agent_idx)
+        .min(entries.len() - 1)
+        .saturating_sub(visible - 1);
+    let start_row = lines.len();
+    for entry in entries.iter().skip(first).take(visible) {
+        let bg = (app.highlighted_agent_idx() == Some(entry.global_idx))
+            .then_some(palette.surface1);
+        let style = CellStyle {
+            fg: palette.white,
+            bg,
+        };
+        let hit = HitTarget::Agent(entry.global_idx);
+        let visual = agent_visual_for_agent(palette, entry.agent, spinner_clock(app));
+        let waiting = visual.kind == AgentVisualKind::Waiting;
+        let mut name = StyledLine::with_bg(bg);
+        name.push(" ", palette.white);
+        name.push(visual.glyph, visual.color);
+        name.push(" ", palette.white);
+        name.push(
+            truncate_right(
+                entry
+                    .agent
+                    .thread_name
+                    .as_deref()
+                    .unwrap_or(&entry.agent.agent),
+                width.saturating_sub(name.width()),
+            ),
+            if waiting { visual.color } else { palette.text },
+        );
+        lines.push(name.end(style).with_hit(hit.clone()));
+        if lines.len() >= max_lines {
+            break;
+        }
+        let mut context = StyledLine::with_bg(bg);
+        context.push("   ", palette.white);
+        if waiting {
+            context.push(visual.label, visual.color);
+            context.push(" · ", palette.overlay0);
+        }
+        let place = entry.agent.location.as_deref().unwrap_or(&entry.session.name);
+        context.push(
+            truncate_right(place, width.saturating_sub(context.width())),
+            palette.overlay0,
+        );
+        lines.push(context.end(style).with_hit(hit));
+    }
+    (entries.len() > visible).then_some(ScrollbarSpec {
+        area: Rect::new(0, start_row as u16, width as u16, available as u16),
+        content_length: entries.len() * 2,
+        position: first * 2,
+        viewport_length: available,
+        track: palette.surface2,
+        thumb: palette.overlay1,
+    })
+}
+
+fn render_selected_agent(
+    app: &App,
+    palette: &Palette,
+    lines: &mut Vec<StyledLine>,
+    max_lines: usize,
+    width: usize,
+) {
+    let Some((session, agent)) = app.focused_agent() else {
+        return;
+    };
+    let visual = agent_visual_for_agent(palette, agent, spinner_clock(app));
+    let mut context = StyledLine::blank();
+    context.push(" ", palette.white);
+    context.push(visual.label, visual.color);
+    context.push(" · ", palette.overlay0);
+    context.push(
+        truncate_right(
+            agent.location.as_deref().unwrap_or(&session.name),
+            width.saturating_sub(context.width()),
+        ),
+        palette.subtext0,
+    );
+    if lines.len() < max_lines {
+        lines.push(context.end(CellStyle::fg(palette.white)));
+    }
+    let mut path = StyledLine::blank();
+    path.push(" ", palette.white);
+    path.push(
+        truncate_left(&session.dir, width.saturating_sub(1)),
+        palette.overlay0,
+    );
+    if lines.len() < max_lines {
+        lines.push(path.end(CellStyle::fg(palette.white)));
+    }
+    if let Some(prompt) = agent.last_user_prompt.as_deref() {
+        for text in wrap_truncated_prompt(
+            prompt,
+            width.saturating_sub(2).max(1),
+            MAX_AGENT_PROMPT_LINES,
+        ) {
+            if lines.len() >= max_lines {
+                break;
+            }
+            let mut line = StyledLine::blank();
+            line.push(" ", palette.white);
+            line.push(text, palette.overlay1);
+            lines.push(line.end(CellStyle::fg(palette.white)));
+        }
+    }
 }
 
 fn render_sessions(
@@ -823,7 +976,12 @@ fn build_session_name_row(
     let badge_width = agent_badges_width(&badges);
     let gap_width = usize::from(badge_width > 0);
     let name_width = width.saturating_sub(row.width() + badge_width + gap_width);
-    row.push(truncate_right(&session.name, name_width), name_color);
+    let name = if app.session_filter == SessionFilterMode::Active {
+        format!("{} ({})", session.name, app.visible_agents(session).count())
+    } else {
+        session.name.clone()
+    };
+    row.push(truncate_right(&name, name_width), name_color);
     if badge_width > 0 {
         let spaces = width.saturating_sub(row.width() + badge_width);
         row.push(" ".repeat(spaces.max(1)), palette.white);
@@ -873,7 +1031,7 @@ fn session_agent_badges(
     let agents = if session.agents.is_empty() {
         session.agent_state.iter().collect::<Vec<_>>()
     } else {
-        session.agents.iter().collect::<Vec<_>>()
+        app.visible_agents(session).collect::<Vec<_>>()
     };
     if agents.is_empty() {
         return Vec::new();
@@ -948,7 +1106,7 @@ fn agent_visual_for_kind(palette: &Palette, kind: AgentVisualKind, spinner_ts: u
     let glyph = match kind {
         AgentVisualKind::Error => "✗".to_string(),
         AgentVisualKind::Stale | AgentVisualKind::Interrupted => "⚠".to_string(),
-        AgentVisualKind::Waiting => "◉".to_string(),
+        AgentVisualKind::Waiting => "?".to_string(),
         AgentVisualKind::ToolRunning => "⚙".to_string(),
         AgentVisualKind::Running => agent_spinner(spinner_ts).to_string(),
         AgentVisualKind::DoneUnseen => "●".to_string(),
@@ -958,7 +1116,7 @@ fn agent_visual_for_kind(palette: &Palette, kind: AgentVisualKind, spinner_ts: u
         AgentVisualKind::Error => palette.red,
         AgentVisualKind::Stale => palette.yellow,
         AgentVisualKind::Interrupted => palette.peach,
-        AgentVisualKind::Waiting => palette.blue,
+        AgentVisualKind::Waiting => palette.red,
         AgentVisualKind::ToolRunning => palette.sky,
         AgentVisualKind::Running => palette.yellow,
         AgentVisualKind::DoneUnseen => palette.teal,
@@ -968,7 +1126,7 @@ fn agent_visual_for_kind(palette: &Palette, kind: AgentVisualKind, spinner_ts: u
         AgentVisualKind::Error => "error",
         AgentVisualKind::Stale => "stale",
         AgentVisualKind::Interrupted => "stopped",
-        AgentVisualKind::Waiting => "blocked",
+        AgentVisualKind::Waiting => "needs input",
         AgentVisualKind::ToolRunning => "using tools",
         AgentVisualKind::Running => "working",
         AgentVisualKind::DoneUnseen => "done",
@@ -1183,7 +1341,7 @@ fn render_detail(
         lines,
         max_lines,
         width,
-        current_agent_entries(session),
+        current_agent_entries(app, session),
     );
 
     render_metadata(session, palette, lines, max_lines);
@@ -1205,18 +1363,7 @@ fn render_agent_panel_header(
         AgentPanelScope::Current => "current",
         AgentPanelScope::All => "all",
     };
-    let agent_count = match app.agent_panel_scope {
-        AgentPanelScope::Current => app
-            .focused_session_name()
-            .and_then(|focused| app.sessions.iter().find(|session| session.name == focused))
-            .map(|session| session.agents.len())
-            .unwrap_or(0),
-        AgentPanelScope::All => app
-            .sessions
-            .iter()
-            .map(|session| session.agents.len())
-            .sum(),
-    };
+    let agent_count = app.agent_panel_entries().count();
 
     let mut line = StyledLine::blank();
     line.push(" ", palette.white);
@@ -1244,10 +1391,8 @@ struct AgentPanelEntry<'a> {
     global_idx: usize,
 }
 
-fn current_agent_entries(session: &SessionData) -> Vec<AgentPanelEntry<'_>> {
-    session
-        .agents
-        .iter()
+fn current_agent_entries<'a>(app: &'a App, session: &'a SessionData) -> Vec<AgentPanelEntry<'a>> {
+    app.visible_agents(session)
         .enumerate()
         .map(|(global_idx, agent)| AgentPanelEntry {
             session,
@@ -1258,9 +1403,7 @@ fn current_agent_entries(session: &SessionData) -> Vec<AgentPanelEntry<'_>> {
 }
 
 fn all_agent_entries(app: &App) -> Vec<AgentPanelEntry<'_>> {
-    app.sessions
-        .iter()
-        .flat_map(|session| session.agents.iter().map(move |agent| (session, agent)))
+    app.agent_panel_entries()
         .enumerate()
         .map(|(global_idx, (session, agent))| AgentPanelEntry {
             session,
@@ -1305,7 +1448,9 @@ fn render_agent_blocks(
         .collect();
 
     let focused_idx = if app.panel_focus == crate::app::PanelFocus::Agents {
-        app.focused_agent_idx.min(blocks.len().saturating_sub(1))
+        app.highlighted_agent_idx()
+            .unwrap_or(app.focused_agent_idx)
+            .min(blocks.len().saturating_sub(1))
     } else {
         0
     };
@@ -1910,7 +2055,7 @@ fn compact_agent_panel_block(
     entry: AgentPanelEntry<'_>,
 ) -> Vec<StyledLine> {
     let focused = app.panel_focus == crate::app::PanelFocus::Agents
-        && app.focused_agent_idx == entry.global_idx;
+        && app.highlighted_agent_idx() == Some(entry.global_idx);
     let hit = HitTarget::Agent(entry.global_idx);
     let bg = focused.then_some(palette.surface1);
     let visual = agent_visual_for_agent(palette, entry.agent, spinner_clock(app));
@@ -2009,21 +2154,45 @@ fn agent_attention_signal(agent: &AgentEvent) -> AttentionSignal {
     }
 }
 
-fn footer(palette: &Palette, width: usize) -> [StyledLine; 2] {
+fn footer(app: &App, palette: &Palette, width: usize) -> [StyledLine; 2] {
     let hints: &[(&str, Rgb)] = &[
         (" ", palette.white),
         ("⇥", palette.overlay0),
         (" cycle  ", palette.overlay1),
         ("⏎", palette.overlay0),
         (" go  ", palette.overlay1),
-        ("→", palette.overlay0),
-        (" agents  ", palette.overlay1),
+        (
+            if app.agents_are_primary() {
+                "←"
+            } else {
+                "→"
+            },
+            palette.overlay0,
+        ),
+        (
+            if app.agents_are_primary() {
+                " sessions  "
+            } else {
+                " agents  "
+            },
+            palette.overlay1,
+        ),
         ("f", palette.overlay0),
         (" filter  ", palette.overlay1),
         ("w", palette.overlay0),
         (" width  ", palette.overlay1),
-        ("d", palette.overlay0),
-        (" hide  ", palette.overlay1),
+        (
+            if app.agents_are_primary() { "" } else { "d" },
+            palette.overlay0,
+        ),
+        (
+            if app.agents_are_primary() {
+                ""
+            } else {
+                " hide  "
+            },
+            palette.overlay1,
+        ),
         ("x", palette.overlay0),
         (" kill", palette.overlay1),
     ];
@@ -2821,7 +2990,107 @@ const WHITE: Rgb = Rgb::new(255, 255, 255);
 mod tests {
     use super::*;
     use crate::app::{App, KillTarget, Modal};
-    use crate::generated::protocol::{AgentEvent, ClientCommand, ServerState, SessionData};
+    use crate::generated::protocol::{
+        AgentEvent, AgentLiveness, ClientCommand, ServerState, SessionData,
+    };
+
+    #[test]
+    fn active_all_panel_shows_five_liquid_agents_and_exact_focus_targets() {
+        let liquid = SessionData {
+            agents: (1..=5)
+                .map(|index| AgentEvent {
+                    pane_id: Some(format!("%{index}")),
+                    liveness: Some(AgentLiveness::Alive),
+                    ..agent(
+                        "claude-code",
+                        AgentStatus::Idle,
+                        Some(&format!("Session {index}")),
+                    )
+                })
+                .chain(std::iter::once(agent(
+                    "claude-code",
+                    AgentStatus::Done,
+                    Some("Unknown ghost"),
+                )))
+                .collect(),
+            ..session("liquid", "/liquid", "main")
+        };
+        let mut app = app_from_sessions(vec![liquid, session("resume-cv", "/resume", "main")]);
+        app.session_filter = SessionFilterMode::Active;
+        app.agent_panel_scope = AgentPanelScope::All;
+        app.detail_panel_height = 12;
+        app.set_focused_session("liquid");
+        let lines = render_text(&app, 30, 24);
+        assert!(
+            lines.first().is_some_and(|line| line.contains("agents")),
+            "{}",
+            lines.join("\n")
+        );
+        for index in 1..=5 {
+            assert!(
+                lines
+                    .iter()
+                    .take(detail_separator_row(&app, 30, 24) as usize)
+                    .any(|line| line.contains(&format!("Session {index}"))),
+                "{}",
+                lines.join("\n")
+            );
+        }
+        assert!(
+            !lines
+                .iter()
+                .any(|line| line.contains("resume-cv") || line.contains("Unknown ghost"))
+        );
+        let hit_map = compute_hit_map(&app, 30, 24);
+        assert!(
+            hit_map
+                .iter()
+                .take(detail_separator_row(&app, 30, 24) as usize)
+                .any(|hit| *hit == Some(HitTarget::Agent(4)))
+        );
+        app.focus_agents_panel();
+        app.move_agent_focus(4);
+        app.activate_focused_agent();
+        assert!(app.drain_commands().iter().any(|command| matches!(command,
+            ClientCommand::FocusAgentPane { session, pane_id: Some(pane), .. }
+                if session == "liquid" && pane == "%5"
+        )));
+    }
+
+    #[test]
+    fn primary_agent_waiting_for_input_is_called_out() {
+        let liquid = SessionData {
+            agents: vec![
+                AgentEvent {
+                    liveness: Some(AgentLiveness::Alive),
+                    ..agent("claude-code", AgentStatus::Waiting, Some("Pick a plan"))
+                },
+                AgentEvent {
+                    liveness: Some(AgentLiveness::Alive),
+                    ..agent("codex", AgentStatus::Idle, Some("Quiet one"))
+                },
+            ],
+            ..session("liquid", "/liquid", "main")
+        };
+        let mut app = app_from_sessions(vec![liquid]);
+        app.agent_panel_scope = AgentPanelScope::All;
+        let lines = render_text(&app, 30, 24);
+        assert_has_line(&lines, " ? Pick a plan");
+        assert_has_line(&lines, "   needs input · liquid");
+        assert_has_line(&lines, "   liquid");
+        let model = build_model(&app, 30, 24);
+        let name_row = model
+            .lines
+            .iter()
+            .find(|line| line.parts.iter().any(|part| part.text.contains("Pick a plan")))
+            .expect("waiting row");
+        let red = CATPPUCCIN_MOCHA.red;
+        assert!(name_row
+            .parts
+            .iter()
+            .filter(|part| part.text.contains("Pick a plan") || part.text == "?")
+            .all(|part| part.style.fg == red));
+    }
 
     fn agent(agent: &str, status: AgentStatus, thread_name: Option<&str>) -> AgentEvent {
         AgentEvent {
@@ -2835,6 +3104,7 @@ mod tests {
             unseen: None,
             pane_id: None,
             liveness: None,
+            location: None,
         }
     }
 
@@ -3044,10 +3314,6 @@ mod tests {
         assert_eq!(
             app.drain_commands(),
             vec![
-                ClientCommand::SwitchSession {
-                    name: "opensessions".to_string(),
-                    client_tty: None,
-                },
                 ClientCommand::FocusAgentPane {
                     session: "opensessions".to_string(),
                     agent: "amp".to_string(),
@@ -3112,7 +3378,7 @@ mod tests {
 
         let lines = render_text(&app, 36, 24);
 
-        assert_has_line(&lines, "› 01 very-long-opensessions-a… ◉ ● ✓");
+        assert_has_line(&lines, "› 01 very-long-opensessions-a… ? ● ✓");
     }
 
     #[test]
@@ -3227,8 +3493,10 @@ mod tests {
         app.toggle_agent_panel_scope();
         let all_lines = render_text(&app, 40, 24);
         assert_has_line(&all_lines, " agents 2                            all");
-        assert_has_line(&all_lines, "  ⚙ opensessions · Query tmux for op…");
-        assert_has_line(&all_lines, "  ● plane · Review PR");
+        assert_has_line(&all_lines, " ⚙ Query tmux for open sessions");
+        assert_has_line(&all_lines, "   opensessions");
+        assert_has_line(&all_lines, " ● Review PR");
+        assert_has_line(&all_lines, "   plane");
     }
 
     #[test]
@@ -3379,7 +3647,7 @@ mod tests {
 
         let lines = render_text(&app, 44, 24);
 
-        assert_has_line(&lines, "▌ 01 opensessions                   ✗ ◉ ⠹ +1");
+        assert_has_line(&lines, "▌ 01 opensessions                   ✗ ? ⠹ +1");
     }
 
     #[test]

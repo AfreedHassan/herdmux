@@ -13,6 +13,8 @@ pub struct PanePresenceInput {
     pub active: bool,
     pub thread_id: Option<String>,
     pub thread_name: Option<String>,
+    /// The agent is blocked on the user (question, plan or permission).
+    pub needs_input: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -40,7 +42,9 @@ impl AgentTracker {
         let session_instances = self.instances.get(session)?;
         session_instances
             .iter()
-            .filter(|(key, _)| !is_synthetic_pane_key(key))
+            .filter(|(key, event)| {
+                !is_synthetic_pane_key(key) && event.liveness != Some(AgentLiveness::Exited)
+            })
             .map(|(key, event)| {
                 let mut event = event.clone();
                 if self
@@ -61,7 +65,9 @@ impl AgentTracker {
 
         let mut agents = session_instances
             .iter()
-            .filter(|(key, _)| !is_synthetic_pane_key(key))
+            .filter(|(key, event)| {
+                !is_synthetic_pane_key(key) && event.liveness != Some(AgentLiveness::Exited)
+            })
             .map(|(key, event)| {
                 let mut event = event.clone();
                 if self
@@ -251,16 +257,20 @@ impl AgentTracker {
         let Some(session_instances) = self.instances.get(session) else {
             return false;
         };
-        session_instances.keys().any(|key| {
-            self.unseen_instances
-                .contains(&self.unseen_key(session, key))
+        session_instances.iter().any(|(key, event)| {
+            event.liveness != Some(AgentLiveness::Exited)
+                && self
+                    .unseen_instances
+                    .contains(&self.unseen_key(session, key))
         })
     }
 
     pub fn get_unseen(&self) -> Vec<String> {
         let mut sessions = BTreeSet::new();
         for key in &self.unseen_instances {
-            if let Some((session, _)) = key.split_once('\0') {
+            if let Some((session, _)) = key.split_once('\0')
+                && self.is_unseen(session)
+            {
                 sessions.insert(session.to_string());
             }
         }
@@ -401,9 +411,9 @@ impl AgentTracker {
     ) -> bool {
         let mut changed = false;
 
-        let active_pane_ids = pane_agents
+        let alive_agent_panes = pane_agents
             .iter()
-            .map(|pane| pane.pane_id.as_str())
+            .map(|pane| (pane.agent.as_str(), pane.pane_id.as_str()))
             .collect::<HashSet<_>>();
         let agents_with_thread_ids = pane_agents
             .iter()
@@ -437,10 +447,9 @@ impl AgentTracker {
                 {
                     alive_agent_threads.contains(&format!("{}\0{thread_id}", event.agent))
                 } else {
-                    event
-                        .pane_id
-                        .as_deref()
-                        .is_some_and(|pane_id| active_pane_ids.contains(pane_id))
+                    event.pane_id.as_deref().is_some_and(|pane_id| {
+                        alive_agent_panes.contains(&(event.agent.as_str(), pane_id))
+                    })
                 };
                 if is_alive {
                     continue;
@@ -882,6 +891,7 @@ mod tests {
             unseen: None,
             pane_id: None,
             liveness: None,
+            location: None,
         }
     }
 
@@ -900,6 +910,107 @@ mod tests {
     }
 
     #[test]
+    fn exited_pane_agent_is_hidden_and_same_thread_resume_restores_it() {
+        let mut tracker = AgentTracker::new();
+        tracker.apply_event(terminal_event(
+            "codex",
+            "work",
+            Some("T-1"),
+            None,
+            Some("%7"),
+        ));
+
+        assert!(tracker.apply_pane_presence("work", Vec::new()));
+        assert!(tracker.get_agents("work").is_empty());
+        assert!(tracker.get_state("work").is_none());
+
+        tracker.apply_pane_presence(
+            "work",
+            vec![PanePresenceInput {
+                agent: "codex".to_string(),
+                pane_id: "%8".to_string(),
+                active: false,
+                thread_id: Some("T-1".to_string()),
+                thread_name: None,
+                needs_input: false,
+            }],
+        );
+
+        let resumed = tracker.get_state("work").expect("resumed thread");
+        assert_eq!(resumed.status, AgentStatus::Done);
+        assert_eq!(resumed.liveness, Some(AgentLiveness::Alive));
+        assert_eq!(resumed.pane_id.as_deref(), Some("%8"));
+    }
+
+    #[test]
+    fn pane_disappearance_preserves_external_event_with_unknown_liveness() {
+        let mut tracker = AgentTracker::new();
+        let external = event("codex", "work", Some("external"), None);
+        tracker.apply_event(external.clone());
+
+        tracker.apply_pane_presence("work", Vec::new());
+
+        assert_eq!(tracker.get_agents("work"), vec![external]);
+    }
+
+    #[test]
+    fn different_agent_in_same_pane_does_not_keep_previous_agent_alive() {
+        let mut tracker = AgentTracker::new();
+        tracker.apply_event(terminal_event(
+            "codex",
+            "work",
+            Some("T-1"),
+            None,
+            Some("%7"),
+        ));
+
+        tracker.apply_pane_presence(
+            "work",
+            vec![PanePresenceInput {
+                agent: "claude-code".to_string(),
+                pane_id: "%7".to_string(),
+                active: false,
+                thread_id: None,
+                thread_name: None,
+                needs_input: false,
+            }],
+        );
+
+        assert!(tracker.get_agents("work").is_empty());
+    }
+
+    #[test]
+    fn exited_agent_hides_unseen_badge_and_resume_restores_it() {
+        let mut tracker = AgentTracker::new();
+        tracker.apply_event(terminal_event(
+            "codex",
+            "work",
+            Some("T-1"),
+            None,
+            Some("%7"),
+        ));
+        assert!(tracker.is_unseen("work"));
+
+        tracker.apply_pane_presence("work", Vec::new());
+        assert!(!tracker.is_unseen("work"));
+        assert!(tracker.get_unseen().is_empty());
+
+        tracker.apply_pane_presence(
+            "work",
+            vec![PanePresenceInput {
+                agent: "codex".to_string(),
+                pane_id: "%8".to_string(),
+                active: false,
+                thread_id: Some("T-1".to_string()),
+                thread_name: None,
+                needs_input: false,
+            }],
+        );
+        assert!(tracker.is_unseen("work"));
+        assert_eq!(tracker.get_unseen(), vec!["work".to_string()]);
+    }
+
+    #[test]
     fn pane_presence_attaches_exact_pane_to_threaded_agent_event() {
         let mut tracker = AgentTracker::new();
         tracker.apply_event(event("amp", "work", Some("T-1"), Some("Fix focus")));
@@ -912,6 +1023,7 @@ mod tests {
                 active: false,
                 thread_id: Some("T-1".to_string()),
                 thread_name: Some("Fix focus".to_string()),
+                needs_input: false,
             }],
         );
 
@@ -937,6 +1049,7 @@ mod tests {
                 active: false,
                 thread_id: None,
                 thread_name: Some("Review PR".to_string()),
+                needs_input: false,
             }],
         );
 
@@ -962,6 +1075,7 @@ mod tests {
                     active: false,
                     thread_id: None,
                     thread_name: Some("Roadmap".to_string()),
+                    needs_input: false,
                 },
                 PanePresenceInput {
                     agent: "amp".to_string(),
@@ -969,6 +1083,7 @@ mod tests {
                     active: true,
                     thread_id: None,
                     thread_name: Some("Release".to_string()),
+                    needs_input: false,
                 },
             ],
         );
@@ -1099,6 +1214,7 @@ mod tests {
                     active: false,
                     thread_id: None,
                     thread_name: Some("Seen - amp - focused".to_string()),
+                    needs_input: false,
                 },
                 PanePresenceInput {
                     agent: "amp".to_string(),
@@ -1106,6 +1222,7 @@ mod tests {
                     active: false,
                     thread_id: None,
                     thread_name: Some("Unseen - amp - background".to_string()),
+                    needs_input: false,
                 },
             ],
         );
@@ -1170,6 +1287,7 @@ mod tests {
                 active: false,
                 thread_id: None,
                 thread_name: Some("Amp running here".to_string()),
+                needs_input: false,
             }],
         );
         tracker.apply_event(terminal_event("amp", "work", Some("T-1"), None, None));
@@ -1192,6 +1310,7 @@ mod tests {
                 active: false,
                 thread_id: None,
                 thread_name: Some("Amp running here".to_string()),
+                needs_input: false,
             }],
         );
         tracker.apply_event(terminal_event("amp", "work", Some("T-1"), None, None));

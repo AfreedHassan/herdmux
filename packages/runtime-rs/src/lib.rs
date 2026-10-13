@@ -1,4 +1,5 @@
 pub mod agent_parsers;
+mod agent_identity;
 pub mod agent_watchers;
 pub mod config;
 pub mod git_info;
@@ -8,6 +9,7 @@ pub mod mux;
 pub mod pi_runtime_registry;
 pub mod port_discovery;
 pub mod portless;
+mod process_presence;
 pub mod project_dir_session;
 pub mod protocol;
 pub mod server_state;
