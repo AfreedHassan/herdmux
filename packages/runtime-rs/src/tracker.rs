@@ -15,6 +15,9 @@ pub struct PanePresenceInput {
     pub thread_name: Option<String>,
     /// The agent is blocked on the user (question, plan or permission).
     pub needs_input: bool,
+    /// Agent hooks report a turn in progress (including one that is only
+    /// waiting on background agents).
+    pub working: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -933,6 +936,7 @@ mod tests {
                 thread_id: Some("T-1".to_string()),
                 thread_name: None,
                 needs_input: false,
+                working: false,
             }],
         );
 
@@ -973,6 +977,7 @@ mod tests {
                 thread_id: None,
                 thread_name: None,
                 needs_input: false,
+                working: false,
             }],
         );
 
@@ -1004,6 +1009,7 @@ mod tests {
                 thread_id: Some("T-1".to_string()),
                 thread_name: None,
                 needs_input: false,
+                working: false,
             }],
         );
         assert!(tracker.is_unseen("work"));
@@ -1024,6 +1030,7 @@ mod tests {
                 thread_id: Some("T-1".to_string()),
                 thread_name: Some("Fix focus".to_string()),
                 needs_input: false,
+                working: false,
             }],
         );
 
@@ -1050,6 +1057,7 @@ mod tests {
                 thread_id: None,
                 thread_name: Some("Review PR".to_string()),
                 needs_input: false,
+                working: false,
             }],
         );
 
@@ -1076,6 +1084,7 @@ mod tests {
                     thread_id: None,
                     thread_name: Some("Roadmap".to_string()),
                     needs_input: false,
+                    working: false,
                 },
                 PanePresenceInput {
                     agent: "amp".to_string(),
@@ -1084,6 +1093,7 @@ mod tests {
                     thread_id: None,
                     thread_name: Some("Release".to_string()),
                     needs_input: false,
+                    working: false,
                 },
             ],
         );
@@ -1215,6 +1225,7 @@ mod tests {
                     thread_id: None,
                     thread_name: Some("Seen - amp - focused".to_string()),
                     needs_input: false,
+                    working: false,
                 },
                 PanePresenceInput {
                     agent: "amp".to_string(),
@@ -1223,6 +1234,7 @@ mod tests {
                     thread_id: None,
                     thread_name: Some("Unseen - amp - background".to_string()),
                     needs_input: false,
+                    working: false,
                 },
             ],
         );
@@ -1288,6 +1300,7 @@ mod tests {
                 thread_id: None,
                 thread_name: Some("Amp running here".to_string()),
                 needs_input: false,
+                working: false,
             }],
         );
         tracker.apply_event(terminal_event("amp", "work", Some("T-1"), None, None));
@@ -1311,6 +1324,7 @@ mod tests {
                 thread_id: None,
                 thread_name: Some("Amp running here".to_string()),
                 needs_input: false,
+                working: false,
             }],
         );
         tracker.apply_event(terminal_event("amp", "work", Some("T-1"), None, None));

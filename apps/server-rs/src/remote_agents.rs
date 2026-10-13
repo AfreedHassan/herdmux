@@ -105,20 +105,19 @@ try:
             pass
 except Exception:
     pass
-fmt = "#{pane_id}\t#{session_name}\t#{window_index}\t#{window_name}\t#{pane_pid}\t#{&&:#{session_attached},#{&&:#{window_active},#{pane_active}}}\t#{@herdmux_state}"
+fmt = "#{pane_id}\t#{session_name}\t#{window_index}\t#{window_name}\t#{pane_pid}\t#{&&:#{session_attached},#{&&:#{window_active},#{pane_active}}}"
 for line in run("tmux", "list-panes", "-a", "-F", fmt).splitlines():
     parts = line.split("\t")
-    if len(parts) != 7 or not parts[4].isdigit():
+    if len(parts) != 6 or not parts[4].isdigit():
         continue
-    pane, session, window_index, window_name, pid, active, hook_state = parts
+    pane, session, window_index, window_name, pid, active = parts
     # Drop status glyphs that agent indicators append to window names.
     window_name = re.sub(r"\s+[^\w\s-]+$", "", window_name)
     tool = agent_under(int(pid))
     if not tool:
         continue
     record = latest.get((tool, pane), {})
-    # Hook-set pane state (herdmux-agent-state) wins over the binding.
-    status = {"needs-input": "needs_input", "running": "working", "done": "done"}.get(hook_state, record.get("status"))
+    status = record.get("status")
     print(json.dumps({"tool": tool, "pane": pane, "session": session,
                       "window": window_index + ":" + window_name,
                       "id": record.get("id"), "status": status,

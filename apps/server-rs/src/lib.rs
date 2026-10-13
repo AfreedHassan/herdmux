@@ -454,6 +454,15 @@ fn agents_with_live_panes(
             // heuristics: Claude writes the question only after it is answered.
             if pane.needs_input {
                 event.status = AgentStatus::Waiting;
+            } else if pane.working
+                && matches!(
+                    event.status,
+                    AgentStatus::Idle | AgentStatus::Done | AgentStatus::Stale
+                )
+            {
+                // The turn has not ended (Stop hook not fired), e.g. the main
+                // transcript is quiet while background agents run.
+                event.status = AgentStatus::Running;
             }
             event
         })
@@ -644,6 +653,7 @@ impl ReadOnlyMuxStateSource {
                             thread_id: pane.thread_id,
                             thread_name: pane.thread_name,
                             needs_input: pane.needs_input,
+                            working: pane.working,
                         }
                     })
                     .collect::<Vec<_>>();
@@ -3929,6 +3939,27 @@ mod agent_presence_tests {
         assert_ne!(agents[0].status, AgentStatus::Waiting);
     }
 
+    #[test]
+    fn hook_reported_turn_in_progress_beats_a_quiet_transcript() {
+        let pane = PanePresenceInput {
+            working: true,
+            ..live_pane("%7")
+        };
+        let done = AgentEvent {
+            status: AgentStatus::Done,
+            ..agents_with_live_panes("liquid", Vec::new(), &[live_pane("%7")]).remove(0)
+        };
+        let agents = agents_with_live_panes("liquid", vec![done.clone()], &[pane.clone()]);
+        assert_eq!(agents[0].status, AgentStatus::Running);
+        // More specific transcript states are kept.
+        let tools = AgentEvent {
+            status: AgentStatus::ToolRunning,
+            ..done
+        };
+        let agents = agents_with_live_panes("liquid", vec![tools], &[pane]);
+        assert_eq!(agents[0].status, AgentStatus::ToolRunning);
+    }
+
     fn live_pane(id: &str) -> PanePresenceInput {
         PanePresenceInput {
             agent: "claude-code".into(),
@@ -3937,6 +3968,7 @@ mod agent_presence_tests {
             thread_id: None,
             thread_name: None,
             needs_input: false,
+            working: false,
         }
     }
 
@@ -4117,6 +4149,7 @@ mod agent_presence_tests {
             thread_id: Some("T-1".into()),
             thread_name: None,
             needs_input: false,
+            working: false,
         }]);
         assert!(source.apply_agent_watcher_snapshot(watcher_snapshot()));
         let state = source
@@ -4158,6 +4191,7 @@ mod agent_presence_tests {
             thread_id: Some("T-1".into()),
             thread_name: None,
             needs_input: false,
+            working: false,
         };
         let provider = Arc::new(AgentProvider {
             panes: Mutex::new(vec![pane.clone()]),

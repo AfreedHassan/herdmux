@@ -18,6 +18,8 @@ pub(crate) struct AgentIdentity {
     pub title: Option<String>,
     /// The `ai hook` binding reports the agent is blocked on the user.
     pub needs_input: bool,
+    /// The `ai hook` binding reports a turn in progress (no Stop yet).
+    pub working: bool,
 }
 
 #[derive(Deserialize)]
@@ -213,6 +215,7 @@ fn identity_for(
         thread_id: record.id.clone(),
         title: title.or_else(|| record.title.as_deref().and_then(useful_title)),
         needs_input: record.status == "needs_input",
+        working: record.status == "working",
     }
 }
 

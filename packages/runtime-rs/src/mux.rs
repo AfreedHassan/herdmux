@@ -34,6 +34,9 @@ pub struct AgentPane {
     pub thread_name: Option<String>,
     /// The agent is blocked on the user (question, plan or permission).
     pub needs_input: bool,
+    /// Agent hooks report a turn in progress (including one that is only
+    /// waiting on background agents).
+    pub working: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

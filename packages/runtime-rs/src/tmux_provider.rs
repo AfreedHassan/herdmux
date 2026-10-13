@@ -110,8 +110,6 @@ pub struct PaneInfo {
     pub height: u16,
     pub left: u16,
     pub right: u16,
-    /// `@herdmux_state` set by agent hooks (`herdmux-agent-state`).
-    pub agent_state: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -716,10 +714,9 @@ impl MuxProvider for TmuxProvider {
                     .as_deref()
                     .filter(|tree| tree.agent_under(pane.pid) == Some(agent.as_str()))
                     .and_then(|_| identities.get(&(agent.clone(), pane.id.clone())));
-                let needs_input = pane_needs_input(
-                    &pane.agent_state,
-                    identity.is_some_and(|identity| identity.needs_input),
-                );
+                // `ai hook` records are the source of truth for turn state.
+                let needs_input = identity.is_some_and(|identity| identity.needs_input);
+                let working = identity.is_some_and(|identity| identity.working);
                 AgentPane {
                     thread_name: identity
                         .and_then(|identity| identity.title.clone())
@@ -730,6 +727,7 @@ impl MuxProvider for TmuxProvider {
                     pane_id: pane.id,
                     active: pane.active,
                     needs_input,
+                    working,
                 }
             })
             .collect()
@@ -917,7 +915,7 @@ fn client_format() -> &'static str {
 }
 
 fn pane_format() -> &'static str {
-    "#{pane_id}\t#{session_name}\t#{window_id}\t#{window_index}\t#{pane_index}\t#{pane_active}\t#{pane_tty}\t#{pane_pid}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_title}\t#{pane_width}\t#{pane_height}\t#{pane_left}\t#{pane_right}\t#{@herdmux_state}"
+    "#{pane_id}\t#{session_name}\t#{window_id}\t#{window_index}\t#{pane_index}\t#{pane_active}\t#{pane_tty}\t#{pane_pid}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_title}\t#{pane_width}\t#{pane_height}\t#{pane_left}\t#{pane_right}"
 }
 
 fn resolve_candidate_pane(
@@ -976,15 +974,6 @@ fn agent_from_pane_hints(pane: &PaneInfo) -> Option<String> {
         .split(|character: char| !character.is_ascii_alphanumeric() && character != '-')
         .find_map(agent_for_executable)
         .map(str::to_string)
-}
-
-/// Hook-set `@herdmux_state` is authoritative; the ai-sessions
-/// binding is only a fallback for panes whose agent has no hooks.
-fn pane_needs_input(agent_state: &str, binding_needs_input: bool) -> bool {
-    match agent_state {
-        "" => binding_needs_input,
-        state => state == "needs-input",
-    }
 }
 
 fn thread_name_from_pane(pane: &PaneInfo, agent: &str) -> Option<String> {
@@ -1080,7 +1069,6 @@ fn parse_panes(raw: &str) -> Vec<PaneInfo> {
                 height: parse_u16(&parts, 12),
                 left: parse_u16(&parts, 13),
                 right: parse_u16(&parts, 14),
-                agent_state: part(&parts, 15),
             })
         })
         .collect()
@@ -1349,23 +1337,5 @@ mod tests {
         );
         assert_eq!(calls.len(), 2, "only the background flash reset follows");
         assert_eq!(calls[1][0], "run-shell");
-    }
-
-    #[test]
-    fn hook_state_pane_option_drives_needs_input() {
-        let line = |state: &str| {
-            format!("%9\tsession\t@0\t0\t0\t1\t/dev/ttys001\t100\t/tmp\tcodex\tcodex\t80\t24\t0\t79\t{state}")
-        };
-        assert_eq!(parse_panes(&line("needs-input"))[0].agent_state, "needs-input");
-        // Older tmux output without the column still parses.
-        let legacy = "%9\tsession\t@0\t0\t0\t1\t/dev/ttys001\t100\t/tmp\tcodex\tcodex\t80\t24\t0\t79";
-        assert_eq!(parse_panes(legacy)[0].agent_state, "");
-        assert!(pane_needs_input("needs-input", false));
-        // A hook state overrides a stale binding either way.
-        assert!(!pane_needs_input("running", true));
-        assert!(!pane_needs_input("done", true));
-        // No hooks on this pane: fall back to the binding.
-        assert!(pane_needs_input("", true));
-        assert!(!pane_needs_input("", false));
     }
 }
