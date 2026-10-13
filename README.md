@@ -3,7 +3,6 @@
 # herdmux
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Star History](https://img.shields.io/github/stars/AfreedHassan/herdmux?style=social)](https://github.com/AfreedHassan/herdmux)
 
 tmux is all you need. make tmux great again :)
 
@@ -206,10 +205,6 @@ For the full tmux workflow with keybindings, troubleshooting, and configuration 
 - `theme`, `sidebarWidth`, `sidebarPosition`, `detailPanelHeight`, `sessionFilter`, and `mux` are wired through the runtime. `plugins`, `port`, and `keybinding` are parsed for compatibility but are not active runtime extension hooks today.
 - Inline theme objects exist in core, but the running server persists and broadcasts theme names.
 - tmux is the only supported mux today.
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=AfreedHassan/herdmux&type=Date)](https://star-history.com/#AfreedHassan/herdmux&Date)
 
 ## License
 
