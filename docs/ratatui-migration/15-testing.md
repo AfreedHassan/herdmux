@@ -182,7 +182,7 @@ jobs:
 
 ## Dogfooding criteria
 
-Before flipping `OPENSESSIONS_TUI=rs` to default:
+Before flipping `HERDMUX_TUI=rs` to default:
 
 - 27 panes running for 24 h: zero crashes, zero memory leaks (RSS stable ±5%).
 - All snapshot tests green for at least 5 days of branch builds.

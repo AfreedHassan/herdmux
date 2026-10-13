@@ -1,11 +1,11 @@
-# opensessions Context
+# herdmux Context
 
-opensessions coordinates terminal multiplexer sessions, sidebar clients, and agent activity inside a local terminal workspace. This glossary names the product concepts that must stay stable across the server, sidebar UI, mux integration, and documentation.
+herdmux coordinates terminal multiplexer sessions, sidebar clients, and agent activity inside a local terminal workspace. This glossary names the product concepts that must stay stable across the server, sidebar UI, mux integration, and documentation.
 
 ## Language
 
 **Server Generation**:
-A single running opensessions server instance for one tmux socket, together with the sidebar clients connected to it. A Server Generation can be running, closing, or closed; once closing starts, the same generation must not become ready again.
+A single running herdmux server instance for one tmux socket, together with the sidebar clients connected to it. A Server Generation can be running, closing, or closed; once closing starts, the same generation must not become ready again.
 _Avoid_: server process when discussing lifecycle ownership, client group, sidebar generation
 
 **Quit**:
@@ -21,11 +21,11 @@ The serialized path through which Lifecycle Operations enter the server-owned st
 _Avoid_: callback-driven lifecycle mutation, nested lifecycle send
 
 **Fixed Sidebar Width**:
-The server-owned sidebar width for one Server Generation. It starts from persisted configuration and may be changed only through an explicit sidebar width command, such as the debounced live TUI width slider. Runtime width changes are saved back to configuration for the next server start. Observed tmux pane widths are drift signals only; they never author a new width. Every opensessions sidebar pane should be repaired back to the Fixed Sidebar Width.
+The server-owned sidebar width for one Server Generation. It starts from persisted configuration and may be changed only through an explicit sidebar width command, such as the debounced live TUI width slider. Runtime width changes are saved back to configuration for the next server start. Observed tmux pane widths are drift signals only; they never author a new width. Every herdmux sidebar pane should be repaired back to the Fixed Sidebar Width.
 _Avoid_: resize transaction, user-authored width, global width adoption
 
 **Sidebar Presence Reconciliation**:
-A Lifecycle Operation transaction that ensures every eligible tmux window in a Server Generation has exactly one opensessions sidebar. Eligible windows are unique non-stash tmux windows, deduplicated by tmux `window_id` so linked sessions do not create duplicate sidebars; targets are spawned one at a time in a staggered order that starts with the origin session.
+A Lifecycle Operation transaction that ensures every eligible tmux window in a Server Generation has exactly one herdmux sidebar. Eligible windows are unique non-stash tmux windows, deduplicated by tmux `window_id` so linked sessions do not create duplicate sidebars; targets are spawned one at a time in a staggered order that starts with the origin session.
 _Avoid_: warmup when referring to the operation, spawn pass, ensure pass
 
 **Presence Failure**:

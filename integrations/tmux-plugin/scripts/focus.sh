@@ -4,7 +4,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/server-common.sh"
 
 find_sidebar_pane() {
-  tmux list-panes -t "$1" -F '#{pane_id} #{pane_title}' 2>/dev/null | awk '$2 == "opensessions-sidebar" { print $1; exit }'
+  tmux list-panes -t "$1" -F '#{pane_id} #{pane_title}' 2>/dev/null | awk '$2 == "herdmux-sidebar" { print $1; exit }'
 }
 
 WINDOW_ID="$(tmux display-message -p '#{window_id}' 2>/dev/null)"

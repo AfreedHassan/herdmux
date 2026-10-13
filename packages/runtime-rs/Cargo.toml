@@ -1,10 +1,10 @@
 [package]
-name = "opensessions-runtime"
+name = "herdmux-runtime"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "opensessions_runtime"
+name = "herdmux_runtime"
 path = "src/lib.rs"
 
 [dependencies]

@@ -79,10 +79,10 @@ Legend:
 | `zellij action move-focus` | ✅ | Same |
 | `Bun.spawn(["open", url])` | ✅ | `std::process::Command::new("open").spawn()` |
 | HTTP `POST /quit` fallback | ✅ | Hand-rolled HTTP/1.1 over `tokio::net::TcpStream` |
-| `~/.config/opensessions/config.json` | ✅ | `std::fs` + `fs2::FileExt` lock OR server-mediated |
-| `/tmp/opensessions-tui-resize.log` | ✅ | `std::fs::OpenOptions::new().append(true)` |
-| `/tmp/opensessions-tui-agent-click.log` | ✅ | Same |
-| Env vars (TMUX, ZELLIJ_*, OPENSESSIONS_*) | ✅ | `std::env::var` |
+| `~/.config/herdmux/config.json` | ✅ | `std::fs` + `fs2::FileExt` lock OR server-mediated |
+| `/tmp/herdmux-tui-resize.log` | ✅ | `std::fs::OpenOptions::new().append(true)` |
+| `/tmp/herdmux-tui-agent-click.log` | ✅ | Same |
+| Env vars (TMUX, ZELLIJ_*, HERDMUX_*) | ✅ | `std::env::var` |
 | Server-key hash | ✅ | Port verbatim; golden test against TS |
 | PID file | ✅ | `std::fs` + `libc::kill(pid, 0)` for liveness |
 
@@ -157,7 +157,7 @@ Legend:
 | Subtle pixel mismatch on niche terminal | Medium | Snapshot test catches; capture more terminal-specific references during dogfooding |
 | `unicode-width` disagreement on icons | Medium | Hardcode width for known icons (see `12-themes.md`) |
 | Mouse hit-test drift after layout refactor | Medium | Add hit-zone unit tests with fixed coordinates |
-| Distribution: postinstall download fails behind firewall | Low | Document `OPENSESSIONS_BIN_PATH` env override; ship a fallback build instruction |
+| Distribution: postinstall download fails behind firewall | Low | Document `HERDMUX_BIN_PATH` env override; ship a fallback build instruction |
 | Server schema drift between TS and generated Rust | Low | `ts-rs` codegen + CI step |
 
 ## Verdict

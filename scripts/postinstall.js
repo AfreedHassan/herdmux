@@ -4,7 +4,7 @@ const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
 
-const REPO_RELEASE_BASE = "https://github.com/ataraxy-labs/opensessions/releases/download";
+const REPO_RELEASE_BASE = "https://github.com/AfreedHassan/herdmux/releases/download";
 
 function targetTriple(platform = os.platform(), arch = os.arch()) {
   if (platform === "darwin" && arch === "arm64") return "aarch64-apple-darwin";
@@ -15,7 +15,7 @@ function targetTriple(platform = os.platform(), arch = os.arch()) {
 }
 
 function artifactName(triple) {
-  return `opensessions-sidebar-${triple}.tar.gz`;
+  return `herdmux-sidebar-${triple}.tar.gz`;
 }
 
 function releaseUrl(version, triple) {
@@ -52,11 +52,11 @@ async function main() {
   const triple = targetTriple();
   const binDir = path.join(__dirname, "..", "bin");
   const executableNames = [
-    "opensessions-sidebar",
-    "opensessions-server",
+    "herdmux-sidebar",
+    "herdmux-server",
     "lazydiff",
   ];
-  const tarball = path.join(binDir, "opensessions-sidebar.tmp.tar.gz");
+  const tarball = path.join(binDir, "herdmux-sidebar.tmp.tar.gz");
 
   fs.mkdirSync(binDir, { recursive: true });
   await download(releaseUrl(version, triple), tarball);

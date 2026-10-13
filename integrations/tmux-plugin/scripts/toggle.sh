@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Toggle the opensessions sidebar via the server.
+# Toggle the herdmux sidebar via the server.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/server-common.sh"

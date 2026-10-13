@@ -27,9 +27,9 @@ const RUST_SERVER_PORT_BASE = 22000;
 const HEARTBEAT_MS = 5_000;
 
 /**
- * Mirror opensessions Rust runtime port resolution. The
+ * Mirror herdmux Rust runtime port resolution. The
  * server port is derived from a hash of the tmux socket path so concurrent
- * tmux servers on the same machine get independent opensessions servers.
+ * tmux servers on the same machine get independent herdmux servers.
  */
 function hashServerKey(input: string): number {
   let hash = 0;
@@ -45,12 +45,12 @@ function resolveServerUrls(): string[] {
     if (url && !urls.includes(url)) urls.push(url);
   };
 
-  add(process.env.OPENSESSIONS_URL?.replace(/\/+$/, ""));
+  add(process.env.HERDMUX_URL?.replace(/\/+$/, ""));
 
-  const explicit = Number.parseInt(process.env.OPENSESSIONS_PORT ?? "", 10);
+  const explicit = Number.parseInt(process.env.HERDMUX_PORT ?? "", 10);
   if (Number.isFinite(explicit) && explicit > 0) add(`http://127.0.0.1:${explicit}`);
 
-  const explicitKey = process.env.OPENSESSIONS_SERVER_KEY?.trim();
+  const explicitKey = process.env.HERDMUX_SERVER_KEY?.trim();
   if (explicitKey) {
     const key = Number.parseInt(explicitKey, 10);
     if (Number.isFinite(key)) {
@@ -71,7 +71,7 @@ function resolveServerUrls(): string[] {
   return urls;
 }
 
-export default function opensessionsRuntime(pi: ExtensionAPI) {
+export default function herdmuxRuntime(pi: ExtensionAPI) {
   let heartbeat: ReturnType<typeof setInterval> | null = null;
   let current: Omit<PiRuntimePayload, "ts" | "sessionName"> | null = null;
 
@@ -97,7 +97,7 @@ export default function opensessionsRuntime(pi: ExtensionAPI) {
         });
         if (response.status >= 200 && response.status < 300) return;
       } catch {
-        // opensessions may not be running yet; retry on next heartbeat
+        // herdmux may not be running yet; retry on next heartbeat
       }
     }
   }

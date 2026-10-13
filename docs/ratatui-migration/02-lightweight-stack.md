@@ -10,7 +10,7 @@
 ```toml
 # apps/tui-rs/Cargo.toml
 [package]
-name = "opensessions-sidebar"
+name = "herdmux-sidebar"
 version = "0.1.0"
 edition = "2024"
 
@@ -215,7 +215,7 @@ binary reduction**.
 |---|---|
 | `tokio-tungstenite` | 2× slower than fastwebsockets; allocates per frame |
 | `reqwest` | We don't need a generic HTTP client; one-time `/quit` POST is one `tokio::net::TcpStream::connect` + 5 lines of HTTP/1.1 |
-| `tracing` | Replace with `eprintln!` and a dedicated `/tmp/opensessions-tui-*.log` file via `std::fs`; we don't need spans/subscribers |
+| `tracing` | Replace with `eprintln!` and a dedicated `/tmp/herdmux-tui-*.log` file via `std::fs`; we don't need spans/subscribers |
 | `color-eyre` | Pretty backtraces; useful in dev only. Behind a `dev-deps` flag. |
 | `crossbeam-channel` | `tokio::sync::mpsc` already in graph; no need to double up |
 | `parking_lot` | Already pulled by crossterm; don't add explicitly |
@@ -231,7 +231,7 @@ Before locking the stack:
    bytes; flag anything unexpected (>5% of binary that we can't justify).
 2. **`cargo tree --duplicates`** — zero acceptable. If we get two versions of a
    crate (common with `crossterm` + `ratatui-crossterm`), pin one explicitly.
-3. **`/usr/bin/time -l ./target/release/opensessions-sidebar`** at idle for
+3. **`/usr/bin/time -l ./target/release/herdmux-sidebar`** at idle for
    60 s, capture peak RSS. Must be ≤ 20 MB.
 4. **`cargo audit`** — zero unpatched advisories.
 

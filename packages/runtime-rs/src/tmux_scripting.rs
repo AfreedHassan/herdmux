@@ -1,5 +1,5 @@
-const SIDEBAR_PANE_TITLE: &str = "opensessions-sidebar";
-const SIDEBAR_WIDTH_OPTION: &str = "@opensessions_width";
+const SIDEBAR_PANE_TITLE: &str = "herdmux-sidebar";
+const SIDEBAR_WIDTH_OPTION: &str = "@herdmux_width";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TmuxVar {
@@ -156,7 +156,7 @@ fn tmux_double_quote(value: &str) -> String {
 }
 
 /// tmux-native `window-layout-changed` hook that snaps the sidebar back to
-/// `@opensessions_width` with no shell or server round-trip. tmux does not
+/// `@herdmux_width` with no shell or server round-trip. tmux does not
 /// re-run hooks for layout changes made by a hook, and the stored layout
 /// guard stops a retry when the width is unattainable, so it cannot loop.
 pub fn sidebar_width_layout_hook() -> String {
@@ -166,10 +166,10 @@ pub fn sidebar_width_layout_hook() -> String {
         format!("#{{P:#{{?#{{==:#{{pane_title}},{SIDEBAR_PANE_TITLE}}},#{{pane_id}},}}}}");
     let width = format!("#{{{SIDEBAR_WIDTH_OPTION}}}");
     let condition = format!(
-        "#{{&&:#{{!=:{width},}},#{{&&:#{{!=:{sidebar_width},}},#{{&&:#{{!=:{sidebar_width},{width}}},#{{!=:#{{window_layout}},#{{@opensessions_layout}}}}}}}}}}"
+        "#{{&&:#{{!=:{width},}},#{{&&:#{{!=:{sidebar_width},}},#{{&&:#{{!=:{sidebar_width},{width}}},#{{!=:#{{window_layout}},#{{@herdmux_layout}}}}}}}}}}"
     );
     format!(
-        "if-shell -F '{condition}' {{ run-shell -C 'resize-pane -t {sidebar_id} -x {width}' ; set-option -wF @opensessions_layout '#{{window_layout}}' }}"
+        "if-shell -F '{condition}' {{ run-shell -C 'resize-pane -t {sidebar_id} -x {width}' ; set-option -wF @herdmux_layout '#{{window_layout}}' }}"
     )
 }
 
@@ -216,7 +216,7 @@ pub fn close_dead_content_pane_pipeline() -> String {
             .render_for_hook();
 
     format!(
-        "tmux -S #{{socket_path}} list-panes -a -F '{session_name}\t{window_id}\t{pane_title}\t{pane_dead}\t{session_windows}' | awk -F '\t' '{{ key=$1 \"\\t\" $2; session[key]=$1; window[key]=$2; windows[key]=$5; if ($3==\"opensessions-sidebar\") {{ sidebars[key]++ }} else if ($4!=\"1\") {{ live[key]++ }} }} END {{ for (key in session) if (sidebars[key] > 0 && live[key]+0 == 0) print session[key] \"\\t\" window[key] \"\\t\" windows[key] }}' | while IFS=$(printf '\\t') read -r session window windows; do if [ \"$windows\" -le 1 ]; then fallback=$(tmux -S #{{socket_path}} list-sessions -F '{session_name}' | awk -v s=\"$session\" '$0==s {{ if (prev != \"\") {{ print prev; exit }}; seen=1; next }} seen {{ print; exit }} {{ prev=$0 }}'); tmux -S #{{socket_path}} list-clients -t \"=$session:\" -F '{client_tty}' | while IFS= read -r client; do [ -n \"$client\" ] && [ -n \"$fallback\" ] && tmux -S #{{socket_path}} switch-client -c \"$client\" -t \"=$fallback:\" >/dev/null 2>&1 || true; done; fi; tmux -S #{{socket_path}} kill-window -t \"$window\" >/dev/null 2>&1 || true; done; tmux -S #{{socket_path}} list-panes -a -f '{dead_pane_filter}' -F '{pane_id}' | while IFS= read -r pane; do [ -n \"$pane\" ] && tmux -S #{{socket_path}} kill-pane -t \"$pane\" >/dev/null 2>&1 || true; done"
+        "tmux -S #{{socket_path}} list-panes -a -F '{session_name}\t{window_id}\t{pane_title}\t{pane_dead}\t{session_windows}' | awk -F '\t' '{{ key=$1 \"\\t\" $2; session[key]=$1; window[key]=$2; windows[key]=$5; if ($3==\"herdmux-sidebar\") {{ sidebars[key]++ }} else if ($4!=\"1\") {{ live[key]++ }} }} END {{ for (key in session) if (sidebars[key] > 0 && live[key]+0 == 0) print session[key] \"\\t\" window[key] \"\\t\" windows[key] }}' | while IFS=$(printf '\\t') read -r session window windows; do if [ \"$windows\" -le 1 ]; then fallback=$(tmux -S #{{socket_path}} list-sessions -F '{session_name}' | awk -v s=\"$session\" '$0==s {{ if (prev != \"\") {{ print prev; exit }}; seen=1; next }} seen {{ print; exit }} {{ prev=$0 }}'); tmux -S #{{socket_path}} list-clients -t \"=$session:\" -F '{client_tty}' | while IFS= read -r client; do [ -n \"$client\" ] && [ -n \"$fallback\" ] && tmux -S #{{socket_path}} switch-client -c \"$client\" -t \"=$fallback:\" >/dev/null 2>&1 || true; done; fi; tmux -S #{{socket_path}} kill-window -t \"$window\" >/dev/null 2>&1 || true; done; tmux -S #{{socket_path}} list-panes -a -f '{dead_pane_filter}' -F '{pane_id}' | while IFS= read -r pane; do [ -n \"$pane\" ] && tmux -S #{{socket_path}} kill-pane -t \"$pane\" >/dev/null 2>&1 || true; done"
     )
 }
 
@@ -234,7 +234,7 @@ fn orphan_sidebar_row_format() -> String {
 
 fn resize_sidebar_width_pipeline(filter: TmuxFormat) -> String {
     format!(
-        "tmux -S #{{socket_path}} list-panes -a -f '{}' -F '{}' | xargs -n1 -I{{}} tmux -S #{{socket_path}} resize-pane -t {{}} -x $(tmux -S #{{socket_path}} show-option -gqv @opensessions_width)",
+        "tmux -S #{{socket_path}} list-panes -a -f '{}' -F '{}' | xargs -n1 -I{{}} tmux -S #{{socket_path}} resize-pane -t {{}} -x $(tmux -S #{{socket_path}} show-option -gqv @herdmux_width)",
         filter.render_for_hook(),
         TmuxVar::PaneId.format().render_for_hook(),
     )
@@ -277,17 +277,17 @@ mod tests {
             TmuxFormat::gt(TmuxVar::WindowPanes.format(), TmuxFormat::literal("1")),
             TmuxFormat::eq(
                 TmuxVar::PaneTitle.format(),
-                TmuxFormat::literal("opensessions-sidebar"),
+                TmuxFormat::literal("herdmux-sidebar"),
             ),
         ]);
 
         assert_eq!(
             filter.render(),
-            "#{&&:#{>:#{window_panes},1},#{==:#{pane_title},opensessions-sidebar}}"
+            "#{&&:#{>:#{window_panes},1},#{==:#{pane_title},herdmux-sidebar}}"
         );
         assert_eq!(
             filter.render_for_hook(),
-            "##{&&:##{>:##{window_panes},1},##{==:##{pane_title},opensessions-sidebar}}"
+            "##{&&:##{>:##{window_panes},1},##{==:##{pane_title},herdmux-sidebar}}"
         );
     }
 
@@ -295,7 +295,7 @@ mod tests {
     fn renders_sidebar_width_repair_pipeline_without_call_site_hash_math() {
         assert_eq!(
             sidebar_width_repair_pipeline(),
-            "tmux -S #{socket_path} list-panes -a -f '##{&&:##{>:##{window_panes},1},##{&&:##{==:##{pane_title},opensessions-sidebar},##{!=:##{pane_width},##{@opensessions_width}}}}' -F '##{pane_id}' | xargs -n1 -I{} tmux -S #{socket_path} resize-pane -t {} -x $(tmux -S #{socket_path} show-option -gqv @opensessions_width)"
+            "tmux -S #{socket_path} list-panes -a -f '##{&&:##{>:##{window_panes},1},##{&&:##{==:##{pane_title},herdmux-sidebar},##{!=:##{pane_width},##{@herdmux_width}}}}' -F '##{pane_id}' | xargs -n1 -I{} tmux -S #{socket_path} resize-pane -t {} -x $(tmux -S #{socket_path} show-option -gqv @herdmux_width)"
         );
     }
 
@@ -304,7 +304,7 @@ mod tests {
         let hook = pane_exited_hook_command("http://127.0.0.1:1234");
 
         assert!(hook.starts_with(
-            "run-shell \"tmux -S #{socket_path} list-panes -a -f '##{&&:##{==:##{window_panes},1},##{==:##{pane_title},opensessions-sidebar}}'"
+            "run-shell \"tmux -S #{socket_path} list-panes -a -f '##{&&:##{==:##{window_panes},1},##{==:##{pane_title},herdmux-sidebar}}'"
         ));
         assert!(
             hook.contains("switch-client -c \\\"\\$client\\\" -t \\\"=\\$fallback:\\\"")
@@ -316,7 +316,7 @@ mod tests {
         );
         assert!(hook.contains("-X POST http://127.0.0.1:1234/pane-exited"));
         assert!(!hook.contains("xargs"));
-        assert!(!hook.contains("show-option -gqv @opensessions_width"));
+        assert!(!hook.contains("show-option -gqv @herdmux_width"));
         assert!(hook.ends_with(&http_hook_command(
             "http://127.0.0.1:1234",
             "/pane-exited",
@@ -331,7 +331,7 @@ mod tests {
         assert!(hook.contains("kill-window"));
         assert!(hook.contains("/pane-exited"));
         assert!(!hook.contains("xargs"));
-        assert!(!hook.contains("show-option -gqv @opensessions_width"));
+        assert!(!hook.contains("show-option -gqv @herdmux_width"));
     }
 
     #[test]
@@ -339,9 +339,9 @@ mod tests {
         let hook = sidebar_width_layout_hook();
         assert!(hook.starts_with("if-shell -F '"));
         assert!(!hook.contains("list-panes") && !hook.contains("xargs") && !hook.contains("curl"));
-        assert!(hook.contains("resize-pane -t #{P:#{?#{==:#{pane_title},opensessions-sidebar},#{pane_id},}} -x #{@opensessions_width}"));
-        assert!(hook.contains("#{!=:#{window_layout},#{@opensessions_layout}}"));
-        assert!(hook.contains("set-option -wF @opensessions_layout '#{window_layout}'"));
+        assert!(hook.contains("resize-pane -t #{P:#{?#{==:#{pane_title},herdmux-sidebar},#{pane_id},}} -x #{@herdmux_width}"));
+        assert!(hook.contains("#{!=:#{window_layout},#{@herdmux_layout}}"));
+        assert!(hook.contains("set-option -wF @herdmux_layout '#{window_layout}'"));
     }
 
 }

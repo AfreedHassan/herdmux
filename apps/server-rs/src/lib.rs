@@ -11,35 +11,35 @@ use std::time::{Instant, SystemTime};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::{SinkExt, StreamExt};
-use opensessions_runtime::agent_watchers::{
+use herdmux_runtime::agent_watchers::{
     AgentWatcherSnapshot, amp_snapshot_from_thread_json, claude_code_snapshot_from_jsonl,
     codex_snapshot_from_jsonl, codex_thread_id_from_path, decode_claude_project_dir,
     droid_snapshot_from_jsonl, opencode_snapshot_from_row, parse_codex_session_index,
     pi_snapshot_from_jsonl,
 };
-use opensessions_runtime::config::{
-    OpensessionsConfig, load_config_from_home, save_config_to_home,
+use herdmux_runtime::config::{
+    HerdmuxConfig, load_config_from_home, save_config_to_home,
 };
-use opensessions_runtime::git_info::{GitInfo, parse_git_info_output};
-use opensessions_runtime::metadata_store::SessionMetadataStore;
-use opensessions_runtime::mux::{ActiveWindow, MuxProvider, SidebarPosition};
-use opensessions_runtime::pi_runtime_registry::{PiRuntimeRegistry, parse_pi_runtime_info};
-use opensessions_runtime::port_discovery::{PortDiscoveryInput, discover_session_ports};
-use opensessions_runtime::project_dir_session::{
+use herdmux_runtime::git_info::{GitInfo, parse_git_info_output};
+use herdmux_runtime::metadata_store::SessionMetadataStore;
+use herdmux_runtime::mux::{ActiveWindow, MuxProvider, SidebarPosition};
+use herdmux_runtime::pi_runtime_registry::{PiRuntimeRegistry, parse_pi_runtime_info};
+use herdmux_runtime::port_discovery::{PortDiscoveryInput, discover_session_ports};
+use herdmux_runtime::project_dir_session::{
     build_dir_session_map, resolve_session_for_project_dir,
 };
-use opensessions_runtime::protocol::{
+use herdmux_runtime::protocol::{
     AgentEvent, AgentLiveness, AgentPanelScope, AgentStatus, MetadataTone, ServerMessage,
     ServerState, SessionFilterMode,
 };
-use opensessions_runtime::server_state::{ReadOnlyStateInput, build_read_only_state};
-use opensessions_runtime::session_order::SessionOrder;
-use opensessions_runtime::sidebar_coordinator::SidebarCoordinator;
-use opensessions_runtime::sidebar_width_sync::clamp_sidebar_width;
-use opensessions_runtime::tmux_provider::{StdCommandRunner, TmuxProvider};
-use opensessions_runtime::tracker::{AgentTracker, PanePresenceInput};
-use opensessions_sidebar_core::app::App as SidebarApp;
-use opensessions_sidebar_core::generated::protocol::ServerMessage as SidebarServerMessage;
+use herdmux_runtime::server_state::{ReadOnlyStateInput, build_read_only_state};
+use herdmux_runtime::session_order::SessionOrder;
+use herdmux_runtime::sidebar_coordinator::SidebarCoordinator;
+use herdmux_runtime::sidebar_width_sync::clamp_sidebar_width;
+use herdmux_runtime::tmux_provider::{StdCommandRunner, TmuxProvider};
+use herdmux_runtime::tracker::{AgentTracker, PanePresenceInput};
+use herdmux_sidebar_core::app::App as SidebarApp;
+use herdmux_sidebar_core::generated::protocol::ServerMessage as SidebarServerMessage;
 use serde_json::Value;
 use sha1_smol::Sha1;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -95,14 +95,14 @@ impl ShutdownAnnouncement {
     }
 }
 
-/// Append a single debug line. Temporarily defaults to `/tmp/opensessions-debug.log`
+/// Append a single debug line. Temporarily defaults to `/tmp/herdmux-debug.log`
 /// so live focus/agent-state issues can be diagnosed without extra env setup;
-/// `OPENSESSIONS_DEBUG_LOG` still overrides the path when set.
+/// `HERDMUX_DEBUG_LOG` still overrides the path when set.
 fn debug_log(line: impl AsRef<str>) {
     use std::io::Write;
-    let path = std::env::var("OPENSESSIONS_DEBUG_LOG")
+    let path = std::env::var("HERDMUX_DEBUG_LOG")
         .ok()
-        .unwrap_or_else(|| "/tmp/opensessions-debug.log".to_string());
+        .unwrap_or_else(|| "/tmp/herdmux-debug.log".to_string());
     if path.is_empty() {
         return;
     }
@@ -227,7 +227,7 @@ impl AgentEventError {
         match self {
             Self::MissingAgent => ("400 Bad Request", "missing agent"),
             Self::InvalidStatus => ("400 Bad Request", "invalid status"),
-            // Agent events are intentionally broadcast to every opensessions
+            // Agent events are intentionally broadcast to every herdmux
             // server in every tmux namespace. A server that cannot map the
             // event's projectDir/tmuxSession to one of its sessions should
             // no-op with a non-error status so the plugin can publish once and
@@ -474,13 +474,13 @@ pub fn default_state_source_from_env(
             .as_deref()
             .map(remote_agents::load_hosts)
             .unwrap_or_default();
-        let names_file = opensessions_runtime::shared::resolve_server_key(&env)
+        let names_file = herdmux_runtime::shared::resolve_server_key(&env)
             .and_then(|key| key.parse::<u16>().ok())
             .map(|key| format!("agent-names.{key}.json"))
             .unwrap_or_else(|| "agent-names.default.json".to_string());
         source.agent_names = Mutex::new(
             home.map(|home| {
-                AgentNameStore::load(home.join(".config/opensessions").join(names_file))
+                AgentNameStore::load(home.join(".config/herdmux").join(names_file))
             })
             .unwrap_or_else(AgentNameStore::unavailable),
         );
@@ -570,9 +570,9 @@ impl ReadOnlyMuxStateSource {
         };
         if let Err(err) = save_config_to_home(
             &home,
-            OpensessionsConfig {
+            HerdmuxConfig {
                 sidebar_width: Some(width),
-                ..OpensessionsConfig::default()
+                ..HerdmuxConfig::default()
             },
         ) {
             debug_log(format!(
@@ -588,9 +588,9 @@ impl ReadOnlyMuxStateSource {
         };
         if let Err(err) = save_config_to_home(
             &home,
-            OpensessionsConfig {
+            HerdmuxConfig {
                 detail_panel_height: Some(height),
-                ..OpensessionsConfig::default()
+                ..HerdmuxConfig::default()
             },
         ) {
             debug_log(format!(
@@ -3417,7 +3417,7 @@ async fn handle_connection(
     }
 
     stream
-        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 19\r\n\r\nopensessions server")
+        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 19\r\n\r\nherdmux server")
         .await?;
     Ok(())
 }
@@ -3636,7 +3636,7 @@ fn parse_command(message: &Message) -> Option<Value> {
 #[cfg(test)]
 mod agent_presence_tests {
     use super::*;
-    use opensessions_runtime::mux::{AgentPane, MuxSessionInfo};
+    use herdmux_runtime::mux::{AgentPane, MuxSessionInfo};
 
     #[test]
     fn passive_focus_targets_exact_live_pane_and_replays_for_identified_client() {
@@ -3992,14 +3992,14 @@ mod agent_presence_tests {
     #[test]
     fn default_state_source_honors_persisted_live_view_settings() {
         let home = std::env::temp_dir().join(format!(
-            "opensessions-live-view-{}-{}",
+            "herdmux-live-view-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
         ));
-        let config_dir = home.join(".config/opensessions");
+        let config_dir = home.join(".config/herdmux");
         fs::create_dir_all(&config_dir).unwrap();
         fs::write(
             config_dir.join("config.json"),

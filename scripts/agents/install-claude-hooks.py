@@ -1,11 +1,11 @@
-"""Idempotently add OpenSessions agent-state hooks to ~/.claude/settings.json."""
+"""Idempotently add Herdmux agent-state hooks to ~/.claude/settings.json."""
 import json, os, shutil, sys, time
 path = os.path.expanduser("~/.claude/settings.json")
 settings = json.load(open(path)) if os.path.exists(path) else {}
 if os.path.exists(path):
-    shutil.copy2(path, f"{path}.bak.opensessions.{int(time.time())}")
+    shutil.copy2(path, f"{path}.bak.herdmux.{int(time.time())}")
 # Hooks call the script from ~/.local/bin; copy it there first (see README).
-cmd = '"$HOME/.local/bin/opensessions-agent-state" '
+cmd = '"$HOME/.local/bin/herdmux-agent-state" '
 wanted = [
     ("PreToolUse", "AskUserQuestion|ExitPlanMode", "needs-input"),
     ("PermissionRequest", "*", "needs-input"),

@@ -13,7 +13,7 @@ use tokio_websockets::Message;
 
 const W: &str = "36";
 const SIDEBAR_SESSIONS: &[&str] = &[
-    "opensessions",
+    "herdmux",
     "effect-ts",
     "lazydiff",
     "os-demo-feat-agent-panel",
@@ -23,14 +23,14 @@ const SIDEBAR_SESSIONS: &[&str] = &[
 #[test]
 fn tmux_sidebar_keyboard_focus_and_worktree_flow() {
     let _guard = e2e_serial_guard();
-    let lab = started_lab("opensessions-e2e-focus");
+    let lab = started_lab("herdmux-e2e-focus");
 
-    lab.wait_for_text("opensessions", "sessions");
+    lab.wait_for_text("herdmux", "sessions");
     lab.wait_for_text("effect-ts", "effect-ts");
 
-    let source = lab.sidebar_pane("opensessions");
+    let source = lab.sidebar_pane("herdmux");
     let tab_destination = lab.sidebar_pane("os-demo-feat-agent-panel");
-    lab.tmux_ok(["switch-client", "-t", "opensessions"]);
+    lab.tmux_ok(["switch-client", "-t", "herdmux"]);
     lab.tmux_ok(["select-pane", "-t", source.as_str()]);
     sleep(Duration::from_millis(250));
 
@@ -48,7 +48,7 @@ fn tmux_sidebar_keyboard_focus_and_worktree_flow() {
 
     let source_after_tab = lab.capture_pane(&source);
     assert!(
-        row_with(&source_after_tab, "opensessions")
+        row_with(&source_after_tab, "herdmux")
             .is_some_and(|row| row.trim_start().starts_with("▌")),
         "old source sidebar should rehome to its own confirmed active session after settled state; got:\n{source_after_tab}",
     );
@@ -109,7 +109,7 @@ fn tmux_sidebar_keyboard_focus_and_worktree_flow() {
 #[test]
 fn tmux_sidebar_x_on_expanded_worktree_child_opens_child_kill_confirm() {
     let _guard = e2e_serial_guard();
-    let lab = started_lab("opensessions-e2e-worktree-child-kill");
+    let lab = started_lab("herdmux-e2e-worktree-child-kill");
 
     let source = lab.sidebar_pane("os-demo-feat-agent-panel");
     lab.tmux_ok(["switch-client", "-t", "os-demo-feat-agent-panel"]);
@@ -142,7 +142,7 @@ fn tmux_sidebar_x_on_expanded_worktree_child_opens_child_kill_confirm() {
 #[test]
 fn tmux_sidebar_x_on_active_worktree_child_kills_that_child_after_confirm() {
     let _guard = e2e_serial_guard();
-    let lab = started_lab("opensessions-e2e-active-worktree-child-kill");
+    let lab = started_lab("herdmux-e2e-active-worktree-child-kill");
 
     let source = lab.sidebar_pane("os-demo-feat-agent-panel");
     lab.tmux_ok(["switch-client", "-t", "os-demo-feat-agent-panel"]);
@@ -164,9 +164,9 @@ fn tmux_sidebar_x_on_active_worktree_child_kills_that_child_after_confirm() {
 #[test]
 fn tmux_sidebar_alt_reorders_worktree_group_as_block() {
     let _guard = e2e_serial_guard();
-    let lab = started_lab("opensessions-e2e-reorder-worktree-group");
-    let source = lab.sidebar_pane("opensessions");
-    lab.tmux_ok(["switch-client", "-t", "opensessions"]);
+    let lab = started_lab("herdmux-e2e-reorder-worktree-group");
+    let source = lab.sidebar_pane("herdmux");
+    lab.tmux_ok(["switch-client", "-t", "herdmux"]);
     lab.tmux_ok(["select-pane", "-t", source.as_str()]);
     lab.wait_for_capture_pane(&source, |text| {
         row_with(text, "os-demo-worktrees").is_some()
@@ -177,18 +177,18 @@ fn tmux_sidebar_alt_reorders_worktree_group_as_block() {
     lab.wait_for_session_order(|names| {
         position(names, "os-demo-feat-agent-panel").is_some_and(|first| {
             position(names, "os-demo-preview").is_some_and(|second| {
-                position(names, "opensessions")
-                    .is_some_and(|opensessions| first + 1 == second && second < opensessions)
+                position(names, "herdmux")
+                    .is_some_and(|herdmux| first + 1 == second && second < herdmux)
             })
         })
     });
 
     lab.send_sidebar_key(&source, "M-Down");
     lab.wait_for_session_order(|names| {
-        position(names, "opensessions").is_some_and(|opensessions| {
+        position(names, "herdmux").is_some_and(|herdmux| {
             position(names, "os-demo-feat-agent-panel").is_some_and(|first| {
                 position(names, "os-demo-preview")
-                    .is_some_and(|second| opensessions < first && first + 1 == second)
+                    .is_some_and(|second| herdmux < first && first + 1 == second)
             })
         })
     });
@@ -197,7 +197,7 @@ fn tmux_sidebar_alt_reorders_worktree_group_as_block() {
 #[test]
 fn tmux_sidebar_reorders_normal_session_across_worktree_group_boundary() {
     let _guard = e2e_serial_guard();
-    let lab = started_lab("opensessions-e2e-reorder-worktree-boundary");
+    let lab = started_lab("herdmux-e2e-reorder-worktree-boundary");
     lab.tmux_ok([
         "new-session",
         "-d",
@@ -208,12 +208,12 @@ fn tmux_sidebar_reorders_normal_session_across_worktree_group_boundary() {
         "-s",
         "z-normal",
         "-c",
-        lab.root.join("opensessions").to_str().unwrap(),
+        lab.root.join("herdmux").to_str().unwrap(),
         "sh",
     ]);
 
-    let source = lab.sidebar_pane("opensessions");
-    lab.tmux_ok(["switch-client", "-t", "opensessions"]);
+    let source = lab.sidebar_pane("herdmux");
+    lab.tmux_ok(["switch-client", "-t", "herdmux"]);
     lab.tmux_ok(["select-pane", "-t", source.as_str()]);
     assert_eq!(
         lab.active_pane(),
@@ -247,63 +247,63 @@ fn tmux_sidebar_reorders_normal_session_across_worktree_group_boundary() {
 #[test]
 fn tmux_sidebar_rehomes_stale_focus_when_returning_to_session() {
     let _guard = e2e_serial_guard();
-    let lab = started_lab("opensessions-e2e-rehome-return-focus");
-    let second_window = lab.spawn_window_with_sidebar("opensessions", "second-sidebar");
-    let source = lab.sidebar_pane("opensessions");
-    let second = lab.sidebar_pane_in_window("opensessions", &second_window);
-    lab.tmux_ok(["switch-client", "-t", "opensessions"]);
+    let lab = started_lab("herdmux-e2e-rehome-return-focus");
+    let second_window = lab.spawn_window_with_sidebar("herdmux", "second-sidebar");
+    let source = lab.sidebar_pane("herdmux");
+    let second = lab.sidebar_pane_in_window("herdmux", &second_window);
+    lab.tmux_ok(["switch-client", "-t", "herdmux"]);
     lab.tmux_ok(["select-pane", "-t", source.as_str()]);
     lab.wait_for_capture_pane(&source, |text| {
-        row_with(text, "opensessions").is_some_and(|row| row.contains("▌"))
+        row_with(text, "herdmux").is_some_and(|row| row.contains("▌"))
     });
     lab.wait_for_capture_pane(&second, |text| {
-        row_with(text, "opensessions").is_some_and(|row| row.contains("▌"))
+        row_with(text, "herdmux").is_some_and(|row| row.contains("▌"))
     });
 
-    lab.move_focus_off_active(&source, "opensessions");
-    lab.move_focus_off_active(&second, "opensessions");
+    lab.move_focus_off_active(&source, "herdmux");
+    lab.move_focus_off_active(&second, "herdmux");
     let stale_capture = lab.capture_pane(&source);
     assert!(
-        has_non_active_focus_marker(&stale_capture, "opensessions"),
+        has_non_active_focus_marker(&stale_capture, "herdmux"),
         "test setup should leave a stale non-active focus row before switching away; got:\n{stale_capture}",
     );
     let second_stale_capture = lab.capture_pane(&second);
     assert!(
-        has_non_active_focus_marker(&second_stale_capture, "opensessions"),
-        "test setup should leave every opensessions sidebar with stale temporary focus; got:\n{second_stale_capture}",
+        has_non_active_focus_marker(&second_stale_capture, "herdmux"),
+        "test setup should leave every herdmux sidebar with stale temporary focus; got:\n{second_stale_capture}",
     );
 
     lab.tmux_ok(["send-keys", "-t", source.as_str(), "1"]);
     lab.wait_for_client_session("effect-ts");
     let effect = lab.sidebar_pane("effect-ts");
     lab.tmux_ok(["select-pane", "-t", effect.as_str()]);
-    lab.click_session_row(&effect, "opensessions");
+    lab.click_session_row(&effect, "herdmux");
 
-    let first_visible = lab.first_capture_after_client_session("opensessions", &source);
+    let first_visible = lab.first_capture_after_client_session("herdmux", &source);
     assert!(
-        row_with(&first_visible, "opensessions").is_some_and(|row| row.contains("▌"))
-            && !has_non_active_focus_marker(&first_visible, "opensessions"),
-        "first visible opensessions sidebar frame after sidebar-driven switch must not show stale temporary focus; got:\n{first_visible}",
+        row_with(&first_visible, "herdmux").is_some_and(|row| row.contains("▌"))
+            && !has_non_active_focus_marker(&first_visible, "herdmux"),
+        "first visible herdmux sidebar frame after sidebar-driven switch must not show stale temporary focus; got:\n{first_visible}",
     );
 
     lab.wait_for_capture_pane(&source, |text| {
-        row_with(text, "opensessions").is_some_and(|row| row.contains("▌"))
-            && !has_non_active_focus_marker(text, "opensessions")
+        row_with(text, "herdmux").is_some_and(|row| row.contains("▌"))
+            && !has_non_active_focus_marker(text, "herdmux")
     });
     lab.wait_for_capture_pane(&second, |text| {
-        row_with(text, "opensessions").is_some_and(|row| row.contains("▌"))
-            && !has_non_active_focus_marker(text, "opensessions")
+        row_with(text, "herdmux").is_some_and(|row| row.contains("▌"))
+            && !has_non_active_focus_marker(text, "herdmux")
     });
 }
 
 #[test]
 fn tmux_sidebar_tracks_agent_state_per_focused_pane() {
     let _guard = e2e_serial_guard();
-    let mut lab = started_lab("opensessions-e2e-agent-pane-state");
+    let mut lab = started_lab("herdmux-e2e-agent-pane-state");
 
-    let seen_pane = lab.spawn_agent_pane("opensessions", "Seen - amp - focused");
-    let unseen_pane = lab.spawn_agent_pane("opensessions", "Unseen - amp - background");
-    let waiting_pane = lab.spawn_agent_pane("opensessions", "Approval - amp - waiting");
+    let seen_pane = lab.spawn_agent_pane("herdmux", "Seen - amp - focused");
+    let unseen_pane = lab.spawn_agent_pane("herdmux", "Unseen - amp - background");
+    let waiting_pane = lab.spawn_agent_pane("herdmux", "Approval - amp - waiting");
     assert_ne!(seen_pane, unseen_pane, "seen/background panes must differ");
     assert_ne!(seen_pane, waiting_pane, "seen/waiting panes must differ");
     assert_ne!(
@@ -312,53 +312,53 @@ fn tmux_sidebar_tracks_agent_state_per_focused_pane() {
     );
     sleep(Duration::from_millis(500));
     lab.restart_server();
-    let sidebar = lab.sidebar_pane("opensessions");
+    let sidebar = lab.sidebar_pane("herdmux");
 
-    lab.post_agent_event("opensessions", "amp", "done", "seen-thread", &seen_pane);
-    lab.post_agent_event("opensessions", "amp", "done", "unseen-thread", &unseen_pane);
+    lab.post_agent_event("herdmux", "amp", "done", "seen-thread", &seen_pane);
+    lab.post_agent_event("herdmux", "amp", "done", "unseen-thread", &unseen_pane);
     lab.post_agent_event(
-        "opensessions",
+        "herdmux",
         "amp",
         "waiting",
         "waiting-thread",
         &waiting_pane,
     );
 
-    lab.tmux_ok(["switch-client", "-t", "opensessions"]);
+    lab.tmux_ok(["switch-client", "-t", "herdmux"]);
     lab.tmux_ok(["select-pane", "-t", seen_pane.as_str()]);
     sleep(Duration::from_millis(100));
-    lab.focus_agent_pane("opensessions", "amp", "seen-thread", &seen_pane);
+    lab.focus_agent_pane("herdmux", "amp", "seen-thread", &seen_pane);
 
     lab.wait_for_capture_pane(&sidebar, |text| {
-        row_with(text, "opensessions").is_some_and(|row| row.contains("? ● ✓"))
+        row_with(text, "herdmux").is_some_and(|row| row.contains("? ● ✓"))
     });
 }
 
 #[test]
 fn tmux_sidebar_marks_done_event_seen_when_its_pane_is_already_focused() {
     let _guard = e2e_serial_guard();
-    let mut lab = started_lab("opensessions-e2e-focused-pane-done-seen");
+    let mut lab = started_lab("herdmux-e2e-focused-pane-done-seen");
 
-    let focused_pane = lab.spawn_agent_pane("opensessions", "Focused - amp - done");
-    let background_pane = lab.spawn_agent_pane("opensessions", "Background - amp - done");
+    let focused_pane = lab.spawn_agent_pane("herdmux", "Focused - amp - done");
+    let background_pane = lab.spawn_agent_pane("herdmux", "Background - amp - done");
     assert_ne!(focused_pane, background_pane, "agent panes must differ");
     sleep(Duration::from_millis(500));
     lab.restart_server();
-    let sidebar = lab.sidebar_pane("opensessions");
+    let sidebar = lab.sidebar_pane("herdmux");
 
-    lab.tmux_ok(["switch-client", "-t", "opensessions"]);
+    lab.tmux_ok(["switch-client", "-t", "herdmux"]);
     lab.tmux_ok(["select-pane", "-t", focused_pane.as_str()]);
     sleep(Duration::from_millis(250));
 
     lab.post_agent_event(
-        "opensessions",
+        "herdmux",
         "amp",
         "done",
         "focused-done-thread",
         &focused_pane,
     );
     lab.post_agent_event(
-        "opensessions",
+        "herdmux",
         "amp",
         "done",
         "background-done-thread",
@@ -366,7 +366,7 @@ fn tmux_sidebar_marks_done_event_seen_when_its_pane_is_already_focused() {
     );
 
     lab.wait_for_capture_pane(&sidebar, |text| {
-        row_with(text, "opensessions").is_some_and(|row| {
+        row_with(text, "herdmux").is_some_and(|row| {
             row.contains("● ✓") && !row.contains("● ●") && !row.contains("● ✓ +")
         })
     });
@@ -375,34 +375,34 @@ fn tmux_sidebar_marks_done_event_seen_when_its_pane_is_already_focused() {
 #[test]
 fn tmux_sidebar_keeps_session_and_agent_panel_seen_state_in_sync_per_focused_pane() {
     let _guard = e2e_serial_guard();
-    let mut lab = started_lab("opensessions-e2e-agent-seen-state-machine");
+    let mut lab = started_lab("herdmux-e2e-agent-seen-state-machine");
 
-    let first_pane = lab.spawn_agent_pane("opensessions", "Agent One - amp - working");
-    let second_pane = lab.spawn_agent_pane("opensessions", "Agent Two - amp - working");
+    let first_pane = lab.spawn_agent_pane("herdmux", "Agent One - amp - working");
+    let second_pane = lab.spawn_agent_pane("herdmux", "Agent Two - amp - working");
     assert_ne!(first_pane, second_pane, "agent panes must differ");
     sleep(Duration::from_millis(500));
     lab.restart_server();
-    let sidebar = lab.sidebar_pane("opensessions");
+    let sidebar = lab.sidebar_pane("herdmux");
 
-    lab.tmux_ok(["switch-client", "-t", "opensessions"]);
+    lab.tmux_ok(["switch-client", "-t", "herdmux"]);
     lab.tmux_ok(["select-pane", "-t", first_pane.as_str()]);
     sleep(Duration::from_millis(250));
     lab.post_watcher_like_agent_event(
-        "opensessions",
+        "herdmux",
         "amp",
         "running",
         "agent-one-thread",
         "Agent One",
     );
     lab.wait_for_capture_pane(&sidebar, |text| {
-        row_with(text, "opensessions").is_some_and(|row| row.contains('⠹'))
+        row_with(text, "herdmux").is_some_and(|row| row.contains('⠹'))
             && text.lines().any(|line| line.contains("⠹ Agent One"))
     });
 
     lab.tmux_ok(["select-pane", "-t", second_pane.as_str()]);
     sleep(Duration::from_millis(250));
     lab.post_watcher_like_agent_event(
-        "opensessions",
+        "herdmux",
         "amp",
         "running",
         "agent-two-thread",
@@ -414,21 +414,21 @@ fn tmux_sidebar_keeps_session_and_agent_panel_seen_state_in_sync_per_focused_pan
     });
 
     lab.post_watcher_like_agent_event(
-        "opensessions",
+        "herdmux",
         "amp",
         "done",
         "agent-one-thread",
         "Agent One",
     );
     lab.wait_for_capture_pane(&sidebar, |text| {
-        row_with(text, "opensessions").is_some_and(|row| row.contains('●'))
+        row_with(text, "herdmux").is_some_and(|row| row.contains('●'))
             && text.lines().any(|line| line.contains("● Agent One"))
             && text.lines().any(|line| line.contains("⠹ Agent Two"))
     });
 
     lab.tmux_ok(["select-pane", "-t", first_pane.as_str()]);
     lab.wait_for_capture_pane(&sidebar, |text| {
-        row_with(text, "opensessions")
+        row_with(text, "herdmux")
             .is_some_and(|row| row.contains('✓') && row.contains('⠹') && !row.contains('●'))
             && text.lines().any(|line| line.contains("✓ Agent One"))
             && text.lines().any(|line| line.contains("⠹ Agent Two"))
@@ -436,21 +436,21 @@ fn tmux_sidebar_keeps_session_and_agent_panel_seen_state_in_sync_per_focused_pan
     });
 
     lab.post_watcher_like_agent_event(
-        "opensessions",
+        "herdmux",
         "amp",
         "done",
         "agent-two-thread",
         "Agent Two",
     );
     lab.wait_for_capture_pane(&sidebar, |text| {
-        row_with(text, "opensessions").is_some_and(|row| row.contains('●'))
+        row_with(text, "herdmux").is_some_and(|row| row.contains('●'))
             && text.lines().any(|line| line.contains("✓ Agent One"))
             && text.lines().any(|line| line.contains("● Agent Two"))
     });
 
     lab.tmux_ok(["select-pane", "-t", second_pane.as_str()]);
     lab.wait_for_capture_pane(&sidebar, |text| {
-        row_with(text, "opensessions")
+        row_with(text, "herdmux")
             .is_some_and(|row| row.contains('✓') && !row.contains('●') && !row.contains('⠹'))
             && text.lines().any(|line| line.contains("✓ Agent One"))
             && text.lines().any(|line| line.contains("✓ Agent Two"))
@@ -461,10 +461,10 @@ fn tmux_sidebar_keeps_session_and_agent_panel_seen_state_in_sync_per_focused_pan
 #[test]
 fn tmux_sidebar_width_is_fixed_and_rejects_manual_sidebar_resize() {
     let _guard = e2e_serial_guard();
-    let lab = started_lab("opensessions-e2e-width");
+    let lab = started_lab("herdmux-e2e-width");
     lab.assert_width_hooks_are_well_quoted();
-    let source = lab.sidebar_pane("opensessions");
-    lab.tmux_ok(["switch-client", "-t", "opensessions"]);
+    let source = lab.sidebar_pane("herdmux");
+    lab.tmux_ok(["switch-client", "-t", "herdmux"]);
     lab.tmux_ok(["select-pane", "-t", source.as_str()]);
     lab.wait_for_all_sidebar_widths(36);
     sleep(Duration::from_millis(1500));
@@ -481,9 +481,9 @@ fn tmux_sidebar_width_is_fixed_and_rejects_manual_sidebar_resize() {
 #[test]
 fn tmux_sidebar_width_slider_is_the_only_width_author() {
     let _guard = e2e_serial_guard();
-    let mut lab = started_lab("opensessions-e2e-width-slider");
-    let source = lab.sidebar_pane("opensessions");
-    lab.tmux_ok(["switch-client", "-t", "opensessions"]);
+    let mut lab = started_lab("herdmux-e2e-width-slider");
+    let source = lab.sidebar_pane("herdmux");
+    lab.tmux_ok(["switch-client", "-t", "herdmux"]);
     lab.tmux_ok(["select-pane", "-t", source.as_str()]);
     lab.wait_for_all_sidebar_widths(36);
 
@@ -493,7 +493,7 @@ fn tmux_sidebar_width_slider_is_the_only_width_author() {
     lab.tmux_ok(["send-keys", "-t", source.as_str(), "Right"]);
     lab.wait_for_all_sidebar_widths(38);
     assert_eq!(
-        lab.tmux(["show-option", "-gqv", "@opensessions_width"]),
+        lab.tmux(["show-option", "-gqv", "@herdmux_width"]),
         "38"
     );
     lab.tmux_ok(["send-keys", "-t", source.as_str(), "Enter"]);
@@ -508,7 +508,7 @@ fn tmux_sidebar_width_slider_is_the_only_width_author() {
     }
     lab.wait_for_all_sidebar_widths(20);
     assert_eq!(
-        lab.tmux(["show-option", "-gqv", "@opensessions_width"]),
+        lab.tmux(["show-option", "-gqv", "@herdmux_width"]),
         "20"
     );
     lab.tmux_ok(["send-keys", "-t", source.as_str(), "Enter"]);
@@ -526,7 +526,7 @@ fn tmux_sidebar_width_slider_is_the_only_width_author() {
     lab.restart_server();
     lab.wait_for_all_sidebar_widths(21);
     assert_eq!(
-        lab.tmux(["show-option", "-gqv", "@opensessions_width"]),
+        lab.tmux(["show-option", "-gqv", "@herdmux_width"]),
         "21"
     );
 }
@@ -534,9 +534,9 @@ fn tmux_sidebar_width_slider_is_the_only_width_author() {
 #[test]
 fn tmux_sidebar_quit_closes_the_server_and_every_sidebar_client() {
     let _guard = e2e_serial_guard();
-    let mut lab = started_lab("opensessions-e2e-quit");
-    let source = lab.sidebar_pane("opensessions");
-    lab.tmux_ok(["switch-client", "-t", "opensessions"]);
+    let mut lab = started_lab("herdmux-e2e-quit");
+    let source = lab.sidebar_pane("herdmux");
+    lab.tmux_ok(["switch-client", "-t", "herdmux"]);
     lab.tmux_ok(["select-pane", "-t", source.as_str()]);
 
     lab.tmux_ok(["send-keys", "-t", source.as_str(), "q"]);
@@ -548,7 +548,7 @@ fn tmux_sidebar_quit_closes_the_server_and_every_sidebar_client() {
 #[test]
 fn tmux_sidebar_stays_closed_across_session_and_window_switch_hooks() {
     let _guard = e2e_serial_guard();
-    let lab = started_lab("opensessions-e2e-open-close");
+    let lab = started_lab("herdmux-e2e-open-close");
     lab.wait_for_all_sidebar_widths(36);
 
     post_hook(lab.port, "/toggle");
@@ -567,25 +567,25 @@ fn tmux_sidebar_stays_closed_across_session_and_window_switch_hooks() {
 #[test]
 fn tmux_sidebar_multiple_clients_keep_independent_active_rows() {
     let _guard = e2e_serial_guard();
-    let mut lab = started_lab("opensessions-e2e-multiclient");
+    let mut lab = started_lab("herdmux-e2e-multiclient");
     lab.spawn_attached_client_for("effect-ts");
-    lab.wait_for_client_sessions(["opensessions", "effect-ts"]);
+    lab.wait_for_client_sessions(["herdmux", "effect-ts"]);
 
-    let opensessions = lab.capture_pane(&lab.sidebar_pane("opensessions"));
+    let herdmux = lab.capture_pane(&lab.sidebar_pane("herdmux"));
     let effect = lab.capture_pane(&lab.sidebar_pane("effect-ts"));
 
-    assert_active_row(&opensessions, "opensessions");
+    assert_active_row(&herdmux, "herdmux");
     assert_active_row(&effect, "effect-ts");
 }
 
 #[test]
 fn tmux_sidebar_state_is_isolated_per_tmux_socket() {
     let _guard = e2e_serial_guard();
-    let lab_a = started_lab("opensessions-e2e-socket-a");
-    let lab_b = started_lab("opensessions-e2e-socket-b");
+    let lab_a = started_lab("herdmux-e2e-socket-a");
+    let lab_b = started_lab("herdmux-e2e-socket-b");
 
-    let source = lab_a.sidebar_pane("opensessions");
-    lab_a.tmux_ok(["switch-client", "-t", "opensessions"]);
+    let source = lab_a.sidebar_pane("herdmux");
+    lab_a.tmux_ok(["switch-client", "-t", "herdmux"]);
     lab_a.tmux_ok(["select-pane", "-t", source.as_str()]);
     lab_a.wait_for_all_sidebar_widths(36);
     lab_b.wait_for_all_sidebar_widths(36);
@@ -604,11 +604,11 @@ fn tmux_sidebar_state_is_isolated_per_tmux_socket() {
 }
 
 #[test]
-fn tmux_sidebar_q_in_main_pane_does_not_quit_opensessions() {
+fn tmux_sidebar_q_in_main_pane_does_not_quit_herdmux() {
     let _guard = e2e_serial_guard();
-    let mut lab = started_lab("opensessions-e2e-q-main-pane");
-    let main = lab.main_pane("opensessions");
-    lab.tmux_ok(["switch-client", "-t", "opensessions"]);
+    let mut lab = started_lab("herdmux-e2e-q-main-pane");
+    let main = lab.main_pane("herdmux");
+    lab.tmux_ok(["switch-client", "-t", "herdmux"]);
     lab.tmux_ok(["select-pane", "-t", main.as_str()]);
     lab.tmux_ok(["send-keys", "-t", main.as_str(), "q"]);
     sleep(Duration::from_millis(700));
@@ -623,40 +623,40 @@ fn tmux_sidebar_q_in_main_pane_does_not_quit_opensessions() {
 #[test]
 fn tmux_sidebar_pane_exit_does_not_steal_sidebar_width() {
     let _guard = e2e_serial_guard();
-    let lab = started_lab("opensessions-e2e-pane-exit");
-    let sidebar = lab.sidebar_pane("opensessions");
-    let main = lab.main_pane("opensessions");
-    lab.tmux_ok(["switch-client", "-t", "opensessions"]);
+    let lab = started_lab("herdmux-e2e-pane-exit");
+    let sidebar = lab.sidebar_pane("herdmux");
+    let main = lab.main_pane("herdmux");
+    lab.tmux_ok(["switch-client", "-t", "herdmux"]);
     lab.tmux_ok(["select-pane", "-t", sidebar.as_str()]);
     lab.wait_for_all_sidebar_widths(36);
 
     lab.tmux_ok(["split-window", "-h", "-t", main.as_str(), "sh"]);
-    lab.wait_for_non_sidebar_pane_count("opensessions", 2);
+    lab.wait_for_non_sidebar_pane_count("herdmux", 2);
     lab.tmux_ok(["kill-pane", "-t", main.as_str()]);
 
-    lab.wait_for_non_sidebar_pane_count("opensessions", 1);
+    lab.wait_for_non_sidebar_pane_count("herdmux", 1);
     lab.wait_for_all_sidebar_widths(36);
 }
 
 #[test]
 fn tmux_sidebar_closes_window_cleanly_when_last_content_pane_exits() {
     let _guard = e2e_serial_guard();
-    let lab = started_lab("opensessions-e2e-last-pane-exit");
-    lab.tmux_ok(["switch-client", "-t", "opensessions"]);
-    let first_window = lab.current_window_index("opensessions");
-    let second_window = lab.spawn_window_with_sidebar("opensessions", "scratch");
+    let lab = started_lab("herdmux-e2e-last-pane-exit");
+    lab.tmux_ok(["switch-client", "-t", "herdmux"]);
+    let first_window = lab.current_window_index("herdmux");
+    let second_window = lab.spawn_window_with_sidebar("herdmux", "scratch");
     lab.tmux_ok([
         "switch-client",
         "-t",
-        &format!("opensessions:{second_window}"),
+        &format!("herdmux:{second_window}"),
     ]);
-    lab.wait_for_active_window("opensessions", &second_window);
+    lab.wait_for_active_window("herdmux", &second_window);
 
-    let main = lab.main_pane_in_window("opensessions", &second_window);
+    let main = lab.main_pane_in_window("herdmux", &second_window);
     lab.tmux_ok(["kill-pane", "-t", main.as_str()]);
 
-    lab.wait_for_window_absent("opensessions", &second_window);
-    lab.wait_for_active_window("opensessions", &first_window);
+    lab.wait_for_window_absent("herdmux", &second_window);
+    lab.wait_for_active_window("herdmux", &first_window);
     assert!(
         !lab.logs().contains("resize-pane") && !lab.logs().contains("returned 1"),
         "last content pane exit should not surface resize-hook failures; logs:\n{}",
@@ -667,7 +667,7 @@ fn tmux_sidebar_closes_window_cleanly_when_last_content_pane_exits() {
 #[test]
 fn tmux_sidebar_closes_session_cleanly_when_only_content_shell_exits() {
     let _guard = e2e_serial_guard();
-    let lab = started_lab("opensessions-e2e-last-shell-exit");
+    let lab = started_lab("herdmux-e2e-last-shell-exit");
     lab.tmux_ok(["switch-client", "-t", "effect-ts"]);
     lab.wait_for_client_session("effect-ts");
     let session_names = lab.session_names();
@@ -697,19 +697,19 @@ fn tmux_sidebar_closes_session_cleanly_when_only_content_shell_exits() {
 #[test]
 fn tmux_sidebar_width_survives_flat_three_pane_layout_churn() {
     let _guard = e2e_serial_guard();
-    let lab = started_lab("opensessions-e2e-flat-pane-churn");
-    let sidebar = lab.sidebar_pane("opensessions");
-    let main = lab.main_pane("opensessions");
-    lab.tmux_ok(["switch-client", "-t", "opensessions"]);
+    let lab = started_lab("herdmux-e2e-flat-pane-churn");
+    let sidebar = lab.sidebar_pane("herdmux");
+    let main = lab.main_pane("herdmux");
+    lab.tmux_ok(["switch-client", "-t", "herdmux"]);
     lab.tmux_ok(["select-pane", "-t", sidebar.as_str()]);
     lab.wait_for_all_sidebar_widths(36);
 
     lab.tmux_ok(["split-window", "-h", "-t", main.as_str(), "sh"]);
-    lab.wait_for_non_sidebar_pane_count("opensessions", 2);
-    lab.tmux_ok(["select-layout", "-t", "opensessions", "even-horizontal"]);
-    lab.wait_for_sidebar_width("opensessions", 36);
+    lab.wait_for_non_sidebar_pane_count("herdmux", 2);
+    lab.tmux_ok(["select-layout", "-t", "herdmux", "even-horizontal"]);
+    lab.wait_for_sidebar_width("herdmux", 36);
 
-    let content_panes = lab.non_sidebar_panes("opensessions");
+    let content_panes = lab.non_sidebar_panes("herdmux");
     assert_eq!(
         content_panes.len(),
         2,
@@ -719,39 +719,39 @@ fn tmux_sidebar_width_survives_flat_three_pane_layout_churn() {
     // The tmux-native layout hook runs from tmux's notification queue, so
     // allow one short settle window rather than a same-instant read.
     let settle = Instant::now() + Duration::from_millis(200);
-    let mut immediate_width = lab.sidebar_width("opensessions");
+    let mut immediate_width = lab.sidebar_width("herdmux");
     while immediate_width != Some(36) && Instant::now() < settle {
         sleep(Duration::from_millis(10));
-        immediate_width = lab.sidebar_width("opensessions");
+        immediate_width = lab.sidebar_width("herdmux");
     }
     assert_eq!(
         immediate_width,
         Some(36),
         "sidebar width changed immediately after killing pane1 in `sidebar | pane1 | pane2`; panes={:?}\nwidth_option={}\nhooks:\n{}\nlogs:\n{}",
         lab.sidebar_panes(),
-        lab.tmux(["show-option", "-gqv", "@opensessions_width"]),
+        lab.tmux(["show-option", "-gqv", "@herdmux_width"]),
         lab.tmux(["show-hooks", "-g"]),
         lab.logs(),
     );
 
-    lab.wait_for_non_sidebar_pane_count("opensessions", 1);
-    lab.wait_for_sidebar_width("opensessions", 36);
+    lab.wait_for_non_sidebar_pane_count("herdmux", 1);
+    lab.wait_for_sidebar_width("herdmux", 36);
     lab.wait_for_all_sidebar_widths(36);
 }
 
 #[test]
 fn tmux_sidebar_client_resize_never_persists_a_smaller_sidebar_width() {
     let _guard = e2e_serial_guard();
-    let lab = started_lab("opensessions-e2e-client-resize-fixed-width");
-    let sidebar = lab.sidebar_pane("opensessions");
-    lab.tmux_ok(["switch-client", "-t", "opensessions"]);
+    let lab = started_lab("herdmux-e2e-client-resize-fixed-width");
+    let sidebar = lab.sidebar_pane("herdmux");
+    lab.tmux_ok(["switch-client", "-t", "herdmux"]);
     lab.tmux_ok(["select-pane", "-t", sidebar.as_str()]);
     lab.wait_for_all_sidebar_widths(36);
 
     lab.tmux_ok([
         "resize-window",
         "-t",
-        "opensessions",
+        "herdmux",
         "-x",
         "80",
         "-y",
@@ -761,7 +761,7 @@ fn tmux_sidebar_client_resize_never_persists_a_smaller_sidebar_width() {
     lab.tmux_ok([
         "resize-window",
         "-t",
-        "opensessions",
+        "herdmux",
         "-x",
         "160",
         "-y",
@@ -770,23 +770,23 @@ fn tmux_sidebar_client_resize_never_persists_a_smaller_sidebar_width() {
     lab.tmux_ok([
         "set-window-option",
         "-t",
-        "opensessions",
+        "herdmux",
         "window-size",
         "latest",
     ]);
 
-    lab.wait_for_sidebar_width("opensessions", 36);
+    lab.wait_for_sidebar_width("herdmux", 36);
     lab.wait_for_all_sidebar_widths(36);
 }
 
 #[test]
 fn tmux_sidebar_switch_stays_responsive_with_100_connected_clients() {
     let _guard = e2e_serial_guard();
-    let lab = started_lab("opensessions-e2e-100-clients");
-    let source = lab.sidebar_pane("opensessions");
-    lab.tmux_ok(["switch-client", "-t", "opensessions"]);
+    let lab = started_lab("herdmux-e2e-100-clients");
+    let source = lab.sidebar_pane("herdmux");
+    lab.tmux_ok(["switch-client", "-t", "herdmux"]);
     lab.tmux_ok(["select-pane", "-t", source.as_str()]);
-    lab.wait_for_client_session("opensessions");
+    lab.wait_for_client_session("herdmux");
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_io()
@@ -797,7 +797,7 @@ fn tmux_sidebar_switch_stays_responsive_with_100_connected_clients() {
     runtime.block_on(async {
         let mut clients = Vec::new();
         for index in 0..100 {
-            let ws = opensessions_sidebar::client::connect_ws("127.0.0.1", lab.port)
+            let ws = herdmux_sidebar::client::connect_ws("127.0.0.1", lab.port)
                 .await
                 .unwrap_or_else(|err| panic!("connect passive ws client {index}: {err}"));
             clients.push(ws);
@@ -833,19 +833,19 @@ fn tmux_sidebar_switch_latency_during_width_repair_probe() {
     lab.wait_for_all_sidebar_widths(36);
     sleep(Duration::from_millis(1500));
 
-    let baseline_source = lab.sidebar_pane("opensessions");
-    lab.tmux_ok(["switch-client", "-t", "opensessions"]);
+    let baseline_source = lab.sidebar_pane("herdmux");
+    lab.tmux_ok(["switch-client", "-t", "herdmux"]);
     lab.tmux_ok(["select-pane", "-t", baseline_source.as_str()]);
-    let baseline = lab.measure_tab_switch("opensessions", &baseline_source);
+    let baseline = lab.measure_tab_switch("herdmux", &baseline_source);
 
-    let resize_source = lab.sidebar_pane("opensessions");
-    lab.tmux_ok(["switch-client", "-t", "opensessions"]);
-    lab.wait_for_client_session("opensessions");
+    let resize_source = lab.sidebar_pane("herdmux");
+    lab.tmux_ok(["switch-client", "-t", "herdmux"]);
+    lab.wait_for_client_session("herdmux");
     lab.tmux_ok(["select-pane", "-t", resize_source.as_str()]);
     sleep(Duration::from_millis(300));
     lab.tmux_ok(["resize-pane", "-t", resize_source.as_str(), "-x", "42"]);
     lab.wait_for_all_sidebar_widths(36);
-    let during_resize = lab.measure_tab_switch("opensessions", &resize_source);
+    let during_resize = lab.measure_tab_switch("herdmux", &resize_source);
 
     eprintln!(
         "switch latency probe: sidebars={} baseline_ms={} during_resize_ms={}",
@@ -1010,7 +1010,7 @@ impl Lab {
         let unique = format!("{}-{}-{}", prefix, std::process::id(), id,);
         let root = std::env::temp_dir().join(&unique);
         fs::create_dir_all(&root).expect("create e2e root");
-        let config_dir = root.join("home/.config/opensessions");
+        let config_dir = root.join("home/.config/herdmux");
         fs::create_dir_all(&config_dir).expect("create e2e config dir");
         fs::write(
             config_dir.join("config.json"),
@@ -1027,12 +1027,12 @@ impl Lab {
     }
 
     fn setup_repos(&self) {
-        for name in ["opensessions", "effect-ts", "lazydiff"] {
+        for name in ["herdmux", "effect-ts", "lazydiff"] {
             let dir = self.root.join(name);
             fs::create_dir_all(&dir).expect("create fake repo dir");
             self.git(&dir, ["init", "-q"]);
             self.git(&dir, ["config", "user.email", "e2e@example.com"]);
-            self.git(&dir, ["config", "user.name", "OpenSessions E2E"]);
+            self.git(&dir, ["config", "user.name", "Herdmux E2E"]);
             fs::write(dir.join("README.md"), format!("{name}\n")).expect("write readme");
             self.git(&dir, ["add", "README.md"]);
             self.git(&dir, ["commit", "-q", "-m", "init"]);
@@ -1042,7 +1042,7 @@ impl Lab {
         fs::create_dir_all(&base).expect("create worktree base");
         self.git(&base, ["init", "-q"]);
         self.git(&base, ["config", "user.email", "e2e@example.com"]);
-        self.git(&base, ["config", "user.name", "OpenSessions E2E"]);
+        self.git(&base, ["config", "user.name", "Herdmux E2E"]);
         fs::write(base.join("README.md"), "os-demo\n").expect("write worktree readme");
         self.git(&base, ["add", "README.md"]);
         self.git(&base, ["commit", "-q", "-m", "init"]);
@@ -1082,7 +1082,7 @@ impl Lab {
             .args(["-L", &self.socket, "kill-server"])
             .output();
         for (session, dir) in [
-            ("opensessions", self.root.join("opensessions")),
+            ("herdmux", self.root.join("herdmux")),
             ("effect-ts", self.root.join("effect-ts")),
             ("lazydiff", self.root.join("lazydiff")),
             (
@@ -1109,8 +1109,8 @@ impl Lab {
             ]);
         }
 
-        self.spawn_attached_client_for("opensessions");
-        self.wait_for_client_session("opensessions");
+        self.spawn_attached_client_for("herdmux");
+        self.wait_for_client_session("herdmux");
     }
 
     fn spawn_attached_client_for(&mut self, session: &str) {
@@ -1153,21 +1153,21 @@ time.sleep(300)
         let child = Command::new(server)
             .env("TMUX", tmux_env)
             .env("HOME", self.home_dir())
-            .env("OPENSESSIONS_WIDTH", "35")
-            .env("OPENSESSIONS_HOST", "127.0.0.1")
-            .env("OPENSESSIONS_PORT", self.port.to_string())
+            .env("HERDMUX_WIDTH", "35")
+            .env("HERDMUX_HOST", "127.0.0.1")
+            .env("HERDMUX_PORT", self.port.to_string())
             .env(
-                "OPENSESSIONS_DEBUG_LOG",
+                "HERDMUX_DEBUG_LOG",
                 self.root.join("debug.log").to_str().unwrap(),
             )
             .env(
-                "OPENSESSIONS_PID_FILE",
+                "HERDMUX_PID_FILE",
                 self.root.join("server.pid").to_str().unwrap(),
             )
             .stdout(File::create(self.root.join("server.stdout.log")).expect("server stdout log"))
             .stderr(File::create(self.root.join("server.stderr.log")).expect("server stderr log"))
             .spawn()
-            .expect("start opensessions server");
+            .expect("start herdmux server");
         self.server = Some(child);
         self.wait_for_server();
     }
@@ -1197,7 +1197,7 @@ time.sleep(300)
         let sidebar = self.sidebar_bin();
         for session in SIDEBAR_SESSIONS {
             let command = format!(
-                "env OPENSESSIONS_HOST=127.0.0.1 OPENSESSIONS_PORT={} OPENSESSIONS_DEBUG_LOG={} {} 2>{}",
+                "env HERDMUX_HOST=127.0.0.1 HERDMUX_PORT={} HERDMUX_DEBUG_LOG={} {} 2>{}",
                 self.port,
                 shell_quote(&self.root.join("debug.log").to_string_lossy()),
                 sidebar.display(),
@@ -1226,7 +1226,7 @@ time.sleep(300)
                 "-t",
                 pane.as_str(),
                 "-T",
-                "opensessions-sidebar",
+                "herdmux-sidebar",
             ]);
         }
         sleep(Duration::from_millis(1200));
@@ -1252,7 +1252,7 @@ time.sleep(300)
         ]);
         let sidebar = self.sidebar_bin();
         let command = format!(
-            "env OPENSESSIONS_HOST=127.0.0.1 OPENSESSIONS_PORT={} OPENSESSIONS_DEBUG_LOG={} {} 2>{}",
+            "env HERDMUX_HOST=127.0.0.1 HERDMUX_PORT={} HERDMUX_DEBUG_LOG={} {} 2>{}",
             self.port,
             shell_quote(&self.root.join("debug.log").to_string_lossy()),
             sidebar.display(),
@@ -1281,9 +1281,9 @@ time.sleep(300)
             "-t",
             pane.as_str(),
             "-T",
-            "opensessions-sidebar",
+            "herdmux-sidebar",
         ]);
-        self.wait_for_capture_pane(&pane, |text| text.contains("opensessions"));
+        self.wait_for_capture_pane(&pane, |text| text.contains("herdmux"));
         window_index
     }
 
@@ -1385,7 +1385,7 @@ time.sleep(300)
             .expect("build e2e tokio runtime");
 
         runtime.block_on(async {
-            let mut ws = opensessions_sidebar::client::connect_ws("127.0.0.1", self.port)
+            let mut ws = herdmux_sidebar::client::connect_ws("127.0.0.1", self.port)
                 .await
                 .expect("connect focus-agent ws client");
             let _ = ws.next().await.expect("read ws hello").expect("ws hello");
@@ -1717,7 +1717,7 @@ time.sleep(300)
             .expect("build e2e tokio runtime");
 
         runtime.block_on(async {
-            let mut ws = opensessions_sidebar::client::connect_ws("127.0.0.1", self.port)
+            let mut ws = herdmux_sidebar::client::connect_ws("127.0.0.1", self.port)
                 .await
                 .expect("connect reorder ws client");
             let _ = ws.next().await.expect("read ws hello").expect("ws hello");
@@ -1766,7 +1766,7 @@ time.sleep(300)
             .expect("build e2e tokio runtime");
 
         runtime.block_on(async {
-            let mut ws = opensessions_sidebar::client::connect_ws("127.0.0.1", self.port)
+            let mut ws = herdmux_sidebar::client::connect_ws("127.0.0.1", self.port)
                 .await
                 .expect("connect session-order ws client");
             let _ = ws.next().await.expect("read ws hello").expect("ws hello");
@@ -1863,7 +1863,7 @@ time.sleep(300)
                 let command = parts.next()?;
                 let title = parts.next()?;
                 (pane_session == session
-                    && (title == "opensessions-sidebar" || command.starts_with("opensessions")))
+                    && (title == "herdmux-sidebar" || command.starts_with("herdmux")))
                 .then(|| pane.to_string())
             })
             .unwrap_or_else(|| panic!("no sidebar pane found for {session}; panes:\n{output}"))
@@ -1915,7 +1915,7 @@ time.sleep(300)
             .find_map(|line| {
                 let (pane, command) = line.split_once(' ')?;
                 command
-                    .starts_with("opensessions")
+                    .starts_with("herdmux")
                     .then(|| pane.to_string())
             })
             .unwrap_or_else(|| panic!("no sidebar pane found for {target}; panes:\n{output}"))
@@ -1933,7 +1933,7 @@ time.sleep(300)
         .lines()
         .filter_map(|line| {
             let (pane, title) = line.split_once('\t')?;
-            (title != "opensessions-sidebar").then(|| pane.to_string())
+            (title != "herdmux-sidebar").then(|| pane.to_string())
         })
         .next()
         .unwrap_or_else(|| panic!("no main pane found for {target}"))
@@ -1975,7 +1975,7 @@ time.sleep(300)
         .lines()
         .filter_map(|line| {
             let (pane, title) = line.split_once('\t')?;
-            (title != "opensessions-sidebar").then(|| pane.to_string())
+            (title != "herdmux-sidebar").then(|| pane.to_string())
         })
         .collect()
     }
@@ -1995,7 +1995,7 @@ time.sleep(300)
             let width = parts.next()?.parse::<u16>().ok()?;
             let command = parts.next()?;
             let title = parts.next()?;
-            (title == "opensessions-sidebar" || command.starts_with("opensessions")).then(|| {
+            (title == "herdmux-sidebar" || command.starts_with("herdmux")).then(|| {
                 SidebarPane {
                     session: session.to_string(),
                     pane: pane.to_string(),
@@ -2025,7 +2025,7 @@ time.sleep(300)
             self.tmux(["show-hooks", "-gw"])
         );
         assert!(
-            hooks.contains("@opensessions_width"),
+            hooks.contains("@herdmux_width"),
             "width hooks were not installed; hooks:\n{hooks}"
         );
         let layout_hook = hooks
@@ -2033,8 +2033,8 @@ time.sleep(300)
             .find(|line| line.starts_with("window-layout-changed"))
             .unwrap_or_else(|| panic!("tmux-native width hook missing; hooks:\n{hooks}"));
         assert!(
-            layout_hook.contains("-x #{@opensessions_width}")
-                && layout_hook.contains("#{@opensessions_layout}")
+            layout_hook.contains("-x #{@herdmux_width}")
+                && layout_hook.contains("#{@herdmux_layout}")
                 && !layout_hook.contains("show-option -gqv"),
             "width hook must read the width at execution time without a shell; hook:\n{layout_hook}"
         );
@@ -2103,15 +2103,15 @@ time.sleep(300)
     }
 
     fn sidebar_bin(&self) -> PathBuf {
-        std::env::var_os("CARGO_BIN_EXE_opensessions-sidebar")
+        std::env::var_os("CARGO_BIN_EXE_herdmux-sidebar")
             .map(PathBuf::from)
-            .unwrap_or_else(|| self.target_debug_bin("opensessions-sidebar"))
+            .unwrap_or_else(|| self.target_debug_bin("herdmux-sidebar"))
     }
 
     fn server_bin(&self) -> PathBuf {
-        std::env::var_os("OPENSESSIONS_E2E_SERVER_BIN")
+        std::env::var_os("HERDMUX_E2E_SERVER_BIN")
             .map(PathBuf::from)
-            .unwrap_or_else(|| self.target_debug_bin("opensessions-server"))
+            .unwrap_or_else(|| self.target_debug_bin("herdmux-server"))
     }
 
     fn home_dir(&self) -> PathBuf {
@@ -2119,7 +2119,7 @@ time.sleep(300)
     }
 
     fn config_path(&self) -> PathBuf {
-        self.home_dir().join(".config/opensessions/config.json")
+        self.home_dir().join(".config/herdmux/config.json")
     }
 
     fn target_debug_bin(&self, name: &str) -> PathBuf {

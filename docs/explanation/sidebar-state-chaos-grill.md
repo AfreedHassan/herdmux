@@ -45,7 +45,7 @@ Current gap:
 
 Desired behavior:
 
-- pressing `q` in a connected sidebar requests shutdown of the opensessions server for this tmux-server namespace
+- pressing `q` in a connected sidebar requests shutdown of the herdmux server for this tmux-server namespace
 - the server enters `closing…`
 - every attached sidebar client receives `quit`
 - websocket clients exit
@@ -86,7 +86,7 @@ This should be solved before resize/session/agent chaos, because shutdown define
 
 Product rule:
 
-> `q` quits the entire opensessions server generation for this tmux socket. It does not merely close the local sidebar pane.
+> `q` quits the entire herdmux server generation for this tmux socket. It does not merely close the local sidebar pane.
 
 State-machine rule:
 
@@ -143,11 +143,11 @@ Live red contract:
 
 Definition:
 
-> Sidebar Presence Reconciliation is active when opensessions is making every eligible tmux window in the Server Generation have exactly one connected opensessions sidebar.
+> Sidebar Presence Reconciliation is active when herdmux is making every eligible tmux window in the Server Generation have exactly one connected herdmux sidebar.
 
 Eligible target:
 
-> every unique non-stash tmux `window_id` that should show opensessions.
+> every unique non-stash tmux `window_id` that should show herdmux.
 
 The `window_id` dedupe matters because tmux linked/grouped sessions can report the same physical window under multiple sessions. Warmup must target the physical window once, not once per session row.
 
@@ -235,7 +235,7 @@ The hard case:
 
 - Ghostty window A is attached to tmux server S and currently views tmux session `alpha`
 - Ghostty window B is attached to the same tmux server S and currently views tmux session `beta`
-- both sidebars connect to the same opensessions server because the tmux socket namespace is the same
+- both sidebars connect to the same herdmux server because the tmux socket namespace is the same
 
 There is no single global `currentSession` in that world. There is only:
 
@@ -340,7 +340,7 @@ The model should be split by ownership boundary, not by which file currently emi
 ```diagram
 ╭──────────────────────────────╮
 │ one tmux server / socket      │
-│ one opensessions server       │
+│ one herdmux server       │
 ╰──────────────┬───────────────╯
                │ owns shared facts
                ▼
@@ -364,7 +364,7 @@ The model should be split by ownership boundary, not by which file currently emi
 
 That gives us three explicit layers:
 
-1. **Namespace layer:** one opensessions server per tmux socket.
+1. **Namespace layer:** one herdmux server per tmux socket.
 2. **Shared layer:** facts all sidebars in that namespace agree on.
 3. **Client layer:** facts that differ per attached terminal client/window.
 
@@ -402,7 +402,7 @@ Decision: accepted.
 
 Recommended answer:
 
-> `q` means quit the opensessions server generation for this tmux socket, not merely close the local sidebar pane.
+> `q` means quit the herdmux server generation for this tmux socket, not merely close the local sidebar pane.
 
 Consequences:
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Switch to the Nth visible opensessions session (1-indexed).
+# Switch to the Nth visible herdmux session (1-indexed).
 
 INDEX="${1:?Usage: switch-index.sh <index>}"
 

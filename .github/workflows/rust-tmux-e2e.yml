@@ -26,4 +26,4 @@ jobs:
         run: cargo build --workspace --bins
 
       - name: Run tmux sidebar E2E
-        run: cargo test -p opensessions-sidebar --test tmux_e2e -- --nocapture
+        run: cargo test -p herdmux-sidebar --test tmux_e2e -- --nocapture

@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # Spread non-sidebar panes in the current tmux window using even-horizontal,
-# while preserving the opensessions sidebar pane if present.
+# while preserving the herdmux sidebar pane if present.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/sidebar-common.sh"

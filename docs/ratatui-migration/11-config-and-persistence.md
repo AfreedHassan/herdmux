@@ -2,12 +2,12 @@
 
 ## Current shape
 
-Path: `~/.config/opensessions/config.json`
+Path: `~/.config/herdmux/config.json`
 
 Schema (from `packages/runtime/src/config.ts`):
 
 ```ts
-interface OpensessionsConfig {
+interface HerdmuxConfig {
   mux?: string;
   port?: number;
   plugins: string[];
@@ -32,7 +32,7 @@ same height and only the server writes `detailPanelHeight`.
 // Server → Client
 interface ConfigBroadcast {
   type: "config";
-  config: OpensessionsConfig;
+  config: HerdmuxConfig;
 }
 
 // Client → Server
@@ -48,7 +48,7 @@ detail-panel height is a small change. Server becomes single-writer.
 ```rust
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct OpensessionsConfig {
+pub struct HerdmuxConfig {
     pub mux: Option<String>,
     pub port: Option<u16>,
     #[serde(default)]
@@ -88,10 +88,10 @@ use std::path::PathBuf;
 
 fn config_path() -> PathBuf {
     let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
-    PathBuf::from(home).join(".config").join("opensessions").join("config.json")
+    PathBuf::from(home).join(".config").join("herdmux").join("config.json")
 }
 
-pub fn load_config() -> OpensessionsConfig {
+pub fn load_config() -> HerdmuxConfig {
     let path = config_path();
     let Ok(s) = std::fs::read_to_string(&path) else { return Default::default() };
     serde_json::from_str(&s).unwrap_or_default()
@@ -135,9 +135,9 @@ The Rust server persists one shared height in `detailPanelHeight`:
 
 ```rust
 fn persist_detail_panel_height(&self, height: u16) {
-    save_config_to_home(&home, OpensessionsConfig {
+    save_config_to_home(&home, HerdmuxConfig {
         detail_panel_height: Some(height),
-        ..OpensessionsConfig::default()
+        ..HerdmuxConfig::default()
     })
 }
 ```
@@ -156,20 +156,20 @@ The Rust client must tolerate fields it doesn't know (forward-compat). Use
 `serde(default)` and `serde_json::Value` as a catch-all where shape is
 uncertain (e.g., `theme` which can be a string OR an object).
 
-## What about `OPENSESSIONS_*` env vars?
+## What about `HERDMUX_*` env vars?
 
 Read once at startup:
-- `OPENSESSIONS_DIR` (server entry path resolution)
-- `OPENSESSIONS_PORT` (override)
-- `OPENSESSIONS_HOST` (override)
-- `OPENSESSIONS_SERVER_KEY` (override)
-- `OPENSESSIONS_PID_FILE` (override)
-- `OPENSESSIONS_TUI` (selects ts vs rs client) — used by the launcher script,
+- `HERDMUX_DIR` (server entry path resolution)
+- `HERDMUX_PORT` (override)
+- `HERDMUX_HOST` (override)
+- `HERDMUX_SERVER_KEY` (override)
+- `HERDMUX_PID_FILE` (override)
+- `HERDMUX_TUI` (selects ts vs rs client) — used by the launcher script,
   not the binary itself.
 
 ```rust
 fn server_port() -> u16 {
-    if let Ok(s) = std::env::var("OPENSESSIONS_PORT") {
+    if let Ok(s) = std::env::var("HERDMUX_PORT") {
         if let Ok(n) = s.parse() { return n; }
     }
     let key = server_key();
@@ -180,7 +180,7 @@ fn server_port() -> u16 {
 }
 
 fn server_key() -> Option<u16> {
-    if let Ok(s) = std::env::var("OPENSESSIONS_SERVER_KEY") {
+    if let Ok(s) = std::env::var("HERDMUX_SERVER_KEY") {
         return s.parse().ok();
     }
     let tmux = std::env::var("TMUX").ok()?;

@@ -25,30 +25,30 @@ These are user-visible behaviors. Preserve them even if the implementation detai
 
 ### The sidebar is global within one tmux server
 
-Each tmux server/socket gets its own opensessions server and its own sidebar state. A sidebar in one tmux server must not talk to another tmux server's opensessions server.
+Each tmux server/socket gets its own herdmux server and its own sidebar state. A sidebar in one tmux server must not talk to another tmux server's herdmux server.
 
 The practical product behavior is:
 
 - every sidebar pane inside the same tmux server shows the same session list, filters, lifecycle state, collapsed groups, and Fixed Sidebar Width
 - each attached tmux client owns its own confirmed active row and temporary keyboard focus
 - manual tmux-driven width changes are rejected and repaired back to the server-owned width
-- a different tmux server may have a different opensessions width/state/server without conflict
+- a different tmux server may have a different herdmux width/state/server without conflict
 - stale hooks or sidebars talking to another port are considered broken configuration, not valid mixed-server behavior
 
 ### Sidebar width is owned by the server, not pane resizing
 
-The sidebar width should feel like a fixed application sidebar, not an ordinary tmux pane. It starts from opensessions configuration for that tmux server, can be changed intentionally from the debounced live TUI width slider, is persisted back to configuration, and observed pane width is never promoted to source-of-truth.
+The sidebar width should feel like a fixed application sidebar, not an ordinary tmux pane. It starts from herdmux configuration for that tmux server, can be changed intentionally from the debounced live TUI width slider, is persisted back to configuration, and observed pane width is never promoted to source-of-truth.
 
 Important details from the user's point of view:
 
-- dragging the divider may move the pane momentarily because tmux has no native per-pane width lock, but opensessions snaps it back
+- dragging the divider may move the pane momentarily because tmux has no native per-pane width lock, but herdmux snaps it back
 - a normal tmux pane, background sidebar, manual sidebar drag, pane exit, or whole-terminal resize must not redefine the sidebar width
 - background sidebars should already be at Fixed Sidebar Width before the user lands in them
-- pressing `q` quits opensessions only when the key is delivered to a connected sidebar client; pressing `q` in a normal tmux pane is just a normal shell/app keypress
+- pressing `q` quits herdmux only when the key is delivered to a connected sidebar client; pressing `q` in a normal tmux pane is just a normal shell/app keypress
 
 ### Server shutdown must not leave stale sidebar clients
 
-When an opensessions server exits, every connected sidebar client in that tmux-server namespace should exit too. A dead server with old sidebar panes still rendering stale state is broken.
+When an herdmux server exits, every connected sidebar client in that tmux-server namespace should exit too. A dead server with old sidebar panes still rendering stale state is broken.
 
 Expected shutdown behavior:
 
@@ -95,9 +95,9 @@ There is no resize transaction state machine anymore. Tmux hooks observe layout 
 The accepted rule set is:
 
 - persisted `sidebarWidth` seeds Fixed Sidebar Width for the tmux server
-- deprecated `OPENSESSIONS_WIDTH` is ignored by runtime width ownership; persisted `sidebarWidth` is the restart source of truth
+- deprecated `HERDMUX_WIDTH` is ignored by runtime width ownership; persisted `sidebarWidth` is the restart source of truth
 - debounced `set-sidebar-width` from the live TUI width slider is the only runtime command that mutates Fixed Sidebar Width, and the accepted value is saved back to persisted config
-- every sidebar pane whose title is `opensessions-sidebar` must be repaired to that width
+- every sidebar pane whose title is `herdmux-sidebar` must be repaired to that width
 - `repair-width` from a TUI client carries no width; it only asks the server to re-apply Fixed Sidebar Width after tmux resized the pane
 - `after-resize-pane` performs direct tmux repair only; it fires during our own repairs, so it must stay cheap
 - `after-resize-window`, `after-kill-pane`, `pane-exited`, and `client-resized` first try direct tmux repair, then schedule a delayed server `repair configured width` fallback for layout churn that settles after the hook starts
@@ -189,7 +189,7 @@ These are non-negotiable:
 - keep tmux windows in `window-size latest`; do not leave them in manual mode after `resize-window`
 - install both `pane-exited` and `after-kill-pane`; normal shell/process exit is not covered by `after-kill-pane` alone
 - treat `pane-exited` and `after-kill-pane` as topology-change signals only; they must never adopt tmux's redistributed sidebar width as user intent
-- use `after-resize-pane` only as an idempotent fixed-width repair trigger for panes titled `opensessions-sidebar`; it must no-op when every sidebar pane is already at Fixed Sidebar Width
+- use `after-resize-pane` only as an idempotent fixed-width repair trigger for panes titled `herdmux-sidebar`; it must no-op when every sidebar pane is already at Fixed Sidebar Width
 - do not refocus the main pane immediately after sidebar spawn/restore; let the TUI refocus after capability detection settles so escape sequences do not leak into the main pane
 - invalidate cached sidebar pane listings before logic that depends on just-spawned or just-hidden panes
 
@@ -203,11 +203,11 @@ Derived configuration must be stable for a given tmux socket and distinct across
 - server port, pid file, and log file derive from that key
 - tmux hooks for that tmux server point only to that tmux server's derived server port
 - sidebar clients derive the same endpoint as the server launcher
-- explicit overrides such as `OPENSESSIONS_PORT`, `OPENSESSIONS_HOST`, and `OPENSESSIONS_PID_FILE` should be tmux-scoped, not ambient shell leftovers
+- explicit overrides such as `HERDMUX_PORT`, `HERDMUX_HOST`, and `HERDMUX_PID_FILE` should be tmux-scoped, not ambient shell leftovers
 
 Symptoms of broken per-server wiring:
 
-- multiple `opensessions-server` processes for the same tmux socket
+- multiple `herdmux-server` processes for the same tmux socket
 - hooks in one tmux server point to another tmux server's port
 - sidebars inside the same tmux server have mixed widths after settle
 - pressing `q` in a connected sidebar does not stop the expected derived server
@@ -268,7 +268,7 @@ What happened:
 
 What fixed it:
 
-- tmux-local hook repair across panes titled `opensessions-sidebar`
+- tmux-local hook repair across panes titled `herdmux-sidebar`
 - server backstop repair when hooks or client reports reveal drift
 
 ### 5. Manual window-size mode poisoned layouts
@@ -348,7 +348,7 @@ Before shipping any sidebar behavior change, verify all of these.
 - control-mode clients cannot steal foreground/current-session authority
 - hooks and sidebar clients point to the derived server for the current tmux socket
 - tmux windows remain in `window-size latest`
-- no resize or enforcement loop appears in `/tmp/opensessions-debug.log`
+- no resize or enforcement loop appears in `/tmp/herdmux-debug.log`
 
 ## Files To Read Before Changing This Area
 

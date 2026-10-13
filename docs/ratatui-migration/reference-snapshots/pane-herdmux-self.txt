@@ -9,7 +9,7 @@ Sessions                          6
    03  learning
        main
 
-▌  04  opensessions
+▌  04  herdmux
        devpulse
 
    05  plane-pdf-word-formatting
@@ -38,7 +38,7 @@ Sessions                          6
 
  ──────────────────────────────────
  agents 2                 a:current
- …ments/work/opensessions
+ …ments/work/herdmux
 
   ⚙ Query tmux for open sessions
     working · amp

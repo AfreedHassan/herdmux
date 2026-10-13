@@ -5,19 +5,19 @@
 
 count_sidebar_panes() {
   pane_rows="$1"
-  title="${2:-opensessions-sidebar}"
+  title="${2:-herdmux-sidebar}"
   printf '%s\n' "$pane_rows" | awk -F '|' -v title="$title" '$2 == title { count++ } END { print count + 0 }'
 }
 
 count_non_sidebar_panes() {
   pane_rows="$1"
-  title="${2:-opensessions-sidebar}"
+  title="${2:-herdmux-sidebar}"
   printf '%s\n' "$pane_rows" | awk -F '|' -v title="$title" '$2 != title { count++ } END { print count + 0 }'
 }
 
 extract_sidebar_info() {
   pane_rows="$1"
-  title="${2:-opensessions-sidebar}"
+  title="${2:-herdmux-sidebar}"
   printf '%s\n' "$pane_rows" | awk -F '|' -v title="$title" '$2 == title { print $1 "|" $3 "|" $4 "|" $5 "|" $6; exit }'
 }
 
@@ -25,7 +25,7 @@ detect_sidebar_side() {
   pane_rows="$1"
   sidebar_left="$2"
   sidebar_right="$3"
-  title="${4:-opensessions-sidebar}"
+  title="${4:-herdmux-sidebar}"
 
   printf '%s\n' "$pane_rows" | awk -F '|' -v title="$title" -v sleft="$sidebar_left" -v sright="$sidebar_right" '
     $2 == title { next }

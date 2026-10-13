@@ -4,7 +4,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Ask anything about opensessions — setup, configuration, agent integration, or how something works.
+        Ask anything about herdmux — setup, configuration, agent integration, or how something works.
 
   - type: textarea
     id: question

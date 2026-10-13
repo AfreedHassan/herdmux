@@ -1,1 +1,1 @@
-pub use opensessions_runtime::protocol::*;
+pub use herdmux_runtime::protocol::*;

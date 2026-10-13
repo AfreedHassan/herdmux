@@ -1,16 +1,16 @@
 # Configuration Reference
 
-This page documents the configuration inputs that opensessions reads today.
+This page documents the configuration inputs that herdmux reads today.
 
 ## Config File Location
 
 User config is loaded from:
 
 ```text
-~/.config/opensessions/config.json
+~/.config/herdmux/config.json
 ```
 
-If the file does not exist, opensessions falls back to defaults.
+If the file does not exist, herdmux falls back to defaults.
 
 ## Recommended Config Shape
 
@@ -32,7 +32,7 @@ If the file does not exist, opensessions falls back to defaults.
 | `theme` | `string` | `catppuccin-mocha` | active | Built-in theme name persisted by the TUI |
 | `sidebarWidth` | `number` | `26` | active | Sidebar width in columns |
 | `sidebarPosition` | `"left" | "right"` | `"left"` | active | Sidebar placement |
-| `port` | `number` | none | parsed only | Present in the config type; use `OPENSESSIONS_PORT`/tmux-scoped environment for runtime port overrides today |
+| `port` | `number` | none | parsed only | Present in the config type; use `HERDMUX_PORT`/tmux-scoped environment for runtime port overrides today |
 | `keybinding` | `string` | none | parsed only | Present in the config type, but keybindings are configured outside this file today |
 
 ## Built-In Themes
@@ -81,10 +81,10 @@ The tmux integration reads these tmux options instead of `config.json`:
 
 | tmux option | Default | Used by |
 | --- | --- | --- |
-| `@opensessions-prefix-key` | `o` | Key after the tmux prefix that enters the opensessions key table (`prefix <key>`) |
-| `@opensessions-focus-global-key` | unset | Optional no-prefix tmux keybinding that reveals and focuses the sidebar pane |
-| `@opensessions-index-keys` | unset | Optional space-separated no-prefix tmux keys mapped in order to visible sessions `1` through `9` |
-| `@opensessions-width` | deprecated | Use `sidebarWidth` in config or the in-sidebar width slider instead |
+| `@herdmux-prefix-key` | `o` | Key after the tmux prefix that enters the herdmux key table (`prefix <key>`) |
+| `@herdmux-focus-global-key` | unset | Optional no-prefix tmux keybinding that reveals and focuses the sidebar pane |
+| `@herdmux-index-keys` | unset | Optional space-separated no-prefix tmux keys mapped in order to visible sessions `1` through `9` |
+| `@herdmux-width` | deprecated | Use `sidebarWidth` in config or the in-sidebar width slider instead |
 
 The plugin registers these prefix bindings automatically:
 
@@ -100,7 +100,7 @@ Minimal install:
 If you use TPM, this is enough:
 
 ```tmux
-set -g @plugin 'Ataraxy-Labs/opensessions'
+set -g @plugin 'AfreedHassan/herdmux'
 ```
 
 After adding it, reload tmux and ask TPM to install plugins:
@@ -110,36 +110,36 @@ tmux source-file ~/.tmux.conf
 ~/.tmux/plugins/tpm/bin/install_plugins
 ```
 
-On first load, the plugin downloads the matching GitHub release bundle into `~/.tmux/plugins/opensessions/bin/`. The bundle contains `opensessions-sidebar`, `opensessions-server`, and the bundled `lazydiff` binary. You do not need Rust/Cargo for the normal TPM install path.
+On first load, the plugin downloads the matching GitHub release bundle into `~/.tmux/plugins/herdmux/bin/`. The bundle contains `herdmux-sidebar`, `herdmux-server`, and the bundled `lazydiff` binary. You do not need Rust/Cargo for the normal TPM install path.
 
 If you run from a local checkout instead, this is enough:
 
 ```tmux
-source-file /absolute/path/to/opensessions/opensessions.tmux
+source-file /absolute/path/to/herdmux/herdmux.tmux
 ```
 
 Optional overrides:
 
 ```tmux
-set -g @opensessions-prefix-key "o"   # default; change to remap the opensessions key table
+set -g @herdmux-prefix-key "o"   # default; change to remap the herdmux key table
 ```
 
 All other tmux options fall back to the defaults shown in the table above.
 
-- Use `@opensessions-focus-global-key` and `@opensessions-index-keys` only when you explicitly want no-prefix tmux bindings and know they do not conflict with your window manager or terminal.
+- Use `@herdmux-focus-global-key` and `@herdmux-index-keys` only when you explicitly want no-prefix tmux bindings and know they do not conflict with your window manager or terminal.
 
 ## Environment Variables
 
 | Variable | Used by | Notes |
 | --- | --- | --- |
 | `OPENCODE_DB_PATH` | OpenCode watcher | Overrides the default SQLite path |
-| `OPENSESSIONS_DIR` | tmux helper scripts and server | Helps helper scripts find the repo checkout |
-| `OPENSESSIONS_HOST` | server, sidebar, helper shell scripts | Runtime host override; normally `127.0.0.1` |
-| `OPENSESSIONS_PORT` | server, sidebar, helper shell scripts | Runtime port override; normally derived from the tmux socket/server key |
-| `OPENSESSIONS_SERVER_KEY` | server, sidebar, helper shell scripts | Stable key used to derive per-tmux-socket ports and PID files |
-| `OPENSESSIONS_LAZYDIFF` | sidebar | Explicit lazydiff binary path override. By default the sidebar prefers the bundled sibling binary in `bin/`, then `lazydiff` on `PATH` |
-| `OPENSESSIONS_SKIP_BINARY_DOWNLOAD` | TPM bootstrap | Set to `1` to skip prebuilt binary downloads and use a local `target/` build |
-| `OPENSESSIONS_WIDTH` | ignored | Deprecated stale bootstrap variable; width is controlled by persisted `sidebarWidth` |
+| `HERDMUX_DIR` | tmux helper scripts and server | Helps helper scripts find the repo checkout |
+| `HERDMUX_HOST` | server, sidebar, helper shell scripts | Runtime host override; normally `127.0.0.1` |
+| `HERDMUX_PORT` | server, sidebar, helper shell scripts | Runtime port override; normally derived from the tmux socket/server key |
+| `HERDMUX_SERVER_KEY` | server, sidebar, helper shell scripts | Stable key used to derive per-tmux-socket ports and PID files |
+| `HERDMUX_LAZYDIFF` | sidebar | Explicit lazydiff binary path override. By default the sidebar prefers the bundled sibling binary in `bin/`, then `lazydiff` on `PATH` |
+| `HERDMUX_SKIP_BINARY_DOWNLOAD` | TPM bootstrap | Set to `1` to skip prebuilt binary downloads and use a local `target/` build |
+| `HERDMUX_WIDTH` | ignored | Deprecated stale bootstrap variable; width is controlled by persisted `sidebarWidth` |
 | `SESSIONIZER_DIR` | tmux sessionizer popup | Colon-separated directories searched for new-session candidates (e.g. `$HOME/Code:$HOME/.config`). Also checked via `tmux show-environment -g` when the shell variable is unset. Defaults to `$HOME/Documents` |
 | `SESSIONIZER_MAXDEPTH` | tmux sessionizer popup | Maximum `find` depth when collecting new-session candidates. Also checked via `tmux show-environment -g` when the shell variable is unset. Defaults to `3` |
 
@@ -147,9 +147,9 @@ All other tmux options fall back to the defaults shown in the table above.
 
 | Path | Purpose |
 | --- | --- |
-| `~/.config/opensessions/session-order.json` | Persisted custom session ordering |
-| `/tmp/opensessions.pid` | PID file used by server bootstrap logic |
-| `/tmp/opensessions-debug.log` | Best-effort debug log written by the server and providers |
+| `~/.config/herdmux/session-order.json` | Persisted custom session ordering |
+| `/tmp/herdmux.pid` | PID file used by server bootstrap logic |
+| `/tmp/herdmux-debug.log` | Best-effort debug log written by the server and providers |
 
 ## Mux Detection Rules
 

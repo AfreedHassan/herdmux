@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Toggle opensessions sidebar in Zellij via the server.
+# Toggle herdmux sidebar in Zellij via the server.
 # Ensures the server is running first, then calls POST /toggle.
 #
 # Designed to be called from a zellij keybinding. Add to ~/.config/zellij/config.kdl:
 #
 #   bind "s" {
-#     Run "bash" "${OPENSESSIONS_DIR}/integrations/tmux-plugin/scripts/zellij-toggle.sh" {
+#     Run "bash" "${HERDMUX_DIR}/integrations/tmux-plugin/scripts/zellij-toggle.sh" {
 #       close_on_exit true
 #     };
 #     SwitchToMode "Normal";
@@ -13,16 +13,16 @@
 
 set -euo pipefail
 
-PORT="${OPENSESSIONS_PORT:-7391}"
-HOST="${OPENSESSIONS_HOST:-127.0.0.1}"
+PORT="${HERDMUX_PORT:-7391}"
+HOST="${HERDMUX_HOST:-127.0.0.1}"
 
-OPENSESSIONS_DIR="${OPENSESSIONS_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)}"
+HERDMUX_DIR="${HERDMUX_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 
 RUST_SERVER_BIN=""
-if [ -x "$OPENSESSIONS_DIR/target/release/opensessions-server" ]; then
-    RUST_SERVER_BIN="$OPENSESSIONS_DIR/target/release/opensessions-server"
-elif [ -x "$OPENSESSIONS_DIR/target/debug/opensessions-server" ]; then
-    RUST_SERVER_BIN="$OPENSESSIONS_DIR/target/debug/opensessions-server"
+if [ -x "$HERDMUX_DIR/target/release/herdmux-server" ]; then
+    RUST_SERVER_BIN="$HERDMUX_DIR/target/release/herdmux-server"
+elif [ -x "$HERDMUX_DIR/target/debug/herdmux-server" ]; then
+    RUST_SERVER_BIN="$HERDMUX_DIR/target/debug/herdmux-server"
 fi
 
 # --- Ensure server is running ---
@@ -32,7 +32,7 @@ server_alive() {
 
 if ! server_alive; then
     if [ -z "$RUST_SERVER_BIN" ]; then
-        echo "opensessions: server binary not found. Run: cd $OPENSESSIONS_DIR && cargo build --release -p opensessions-server" >&2
+        echo "herdmux: server binary not found. Run: cd $HERDMUX_DIR && cargo build --release -p herdmux-server" >&2
         exit 1
     fi
     "$RUST_SERVER_BIN" &>/dev/null &

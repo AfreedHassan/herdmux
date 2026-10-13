@@ -176,7 +176,7 @@ Provider methods are synchronous because tmux operations are command-driven and 
 - Session ordering is persisted separately from tmux ordering.
 - tmux sidebars can be hidden into a stash session instead of being killed.
 - tmux is the only supported built-in mux today.
-- The sidebar and helper scripts resolve the server port from the tmux socket via `OPENSESSIONS_SERVER_KEY`, defaulting to derived per-socket ports.
+- The sidebar and helper scripts resolve the server port from the tmux socket via `HERDMUX_SERVER_KEY`, defaulting to derived per-socket ports.
 - TPM installs use prebuilt binaries in `bin/`; local builds use `target/release` or `target/debug` as fallback paths.
 
 ## Where To Start

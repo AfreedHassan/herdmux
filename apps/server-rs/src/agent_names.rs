@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use opensessions_runtime::protocol::{AgentEvent, AgentLiveness, ServerState};
+use herdmux_runtime::protocol::{AgentEvent, AgentLiveness, ServerState};
 use serde_json::{Value, json};
 
 const MAX_NAME_CHARS: usize = 64;
@@ -408,7 +408,7 @@ fn persist_names(path: &std::path::Path, names: &HashMap<String, String>) -> std
 #[cfg(test)]
 mod tests {
     use super::*;
-    use opensessions_runtime::protocol::{AgentLiveness, AgentStatus};
+    use herdmux_runtime::protocol::{AgentLiveness, AgentStatus};
 
     fn agent(pane: &str, thread: Option<&str>, name: &str) -> AgentEvent {
         AgentEvent {

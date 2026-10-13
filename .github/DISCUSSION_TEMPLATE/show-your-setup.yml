@@ -4,7 +4,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Share how you use opensessions! This helps us understand real workflows and prioritize features.
+        Share how you use herdmux! This helps us understand real workflows and prioritize features.
 
   - type: input
     id: agents
@@ -26,7 +26,7 @@ body:
   - type: dropdown
     id: usage-frequency
     attributes:
-      label: How often do you use opensessions?
+      label: How often do you use herdmux?
       options:
         - Daily
         - A few times a week
@@ -39,7 +39,7 @@ body:
     id: workflow
     attributes:
       label: Describe your workflow
-      description: How does opensessions fit into your day? What problem does it solve for you?
+      description: How does herdmux fit into your day? What problem does it solve for you?
       placeholder: "I run 8 sessions with different repos, use the sidebar to jump between them..."
     validations:
       required: true
@@ -56,6 +56,6 @@ body:
     id: screenshot
     attributes:
       label: Screenshot of your setup (optional)
-      description: Drag and drop a screenshot of your tmux + opensessions layout
+      description: Drag and drop a screenshot of your tmux + herdmux layout
     validations:
       required: false

@@ -40,7 +40,7 @@ A migration is complete when **all** of these hold:
    handles all 6 `ServerMessage` variants. (See `03-protocol-and-types.md`.)
 4. **Performance** — measured per-process RSS ≤ 20 MB after warm-up at 35×56,
    confirmed via `ps -o rss` on 27 simultaneous panes.
-5. **Distribution** — `npm install opensessions` (or equivalent) on
+5. **Distribution** — `npm install herdmux` (or equivalent) on
    darwin-arm64, darwin-x64, linux-x64, linux-arm64 yields a working binary
    with no Rust toolchain on the host.
 
@@ -113,13 +113,13 @@ server and connects.
 ### Phase 7 — Multi-theme support + flag-gated default
 
 - Pull theme palette from `packages/runtime` via WS state, not hardcoded.
-- Ship as `OPENSESSIONS_TUI=rs` opt-in.
+- Ship as `HERDMUX_TUI=rs` opt-in.
 
 **Acceptance:** dogfood for 2 weeks; bug rate < 1/day.
 
 ### Phase 8 — Flip default + delete TS client
 
-- New release: Rust client default, TS client kept as `OPENSESSIONS_TUI=ts` escape hatch.
+- New release: Rust client default, TS client kept as `HERDMUX_TUI=ts` escape hatch.
 - One release later: delete `apps/tui`.
 
 ## Out of scope

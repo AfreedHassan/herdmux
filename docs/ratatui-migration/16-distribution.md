@@ -1,7 +1,7 @@
 # 16 — Distribution
 
 The Rust binary needs to land on user machines without requiring them to
-install Rust. Same UX as `npm install opensessions` today.
+install Rust. Same UX as `npm install herdmux` today.
 
 ## Build matrix
 
@@ -48,14 +48,14 @@ jobs:
         run: cargo install cross --git https://github.com/cross-rs/cross
       - run: |
           if [ "${{ matrix.cross }}" = "true" ]; then
-            cross build --release --target ${{ matrix.target }} -p opensessions-sidebar
+            cross build --release --target ${{ matrix.target }} -p herdmux-sidebar
           else
-            cargo build --release --target ${{ matrix.target }} -p opensessions-sidebar
+            cargo build --release --target ${{ matrix.target }} -p herdmux-sidebar
           fi
       - run: |
           mkdir -p artifacts
-          cp target/${{ matrix.target }}/release/opensessions-sidebar artifacts/
-          tar -czf artifacts/opensessions-sidebar-${{ matrix.target }}.tar.gz -C artifacts opensessions-sidebar
+          cp target/${{ matrix.target }}/release/herdmux-sidebar artifacts/
+          tar -czf artifacts/herdmux-sidebar-${{ matrix.target }}.tar.gz -C artifacts herdmux-sidebar
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*.tar.gz
@@ -64,11 +64,11 @@ jobs:
 ## npm package layout (postinstall download)
 
 ```
-opensessions/
+herdmux/
 ├── package.json
 ├── bin/
-│   ├── opensessions          # entry script (Node) → execs the right binary
-│   └── opensessions-sidebar  # symlink resolved by postinstall
+│   ├── herdmux          # entry script (Node) → execs the right binary
+│   └── herdmux-sidebar  # symlink resolved by postinstall
 ├── scripts/
 │   └── postinstall.js        # downloads correct binary from GH releases
 └── apps/
@@ -97,8 +97,8 @@ function targetTriple() {
   throw new Error(`Unsupported: ${p}-${a}`);
 }
 
-const url = `https://github.com/.../releases/download/v${version}/opensessions-sidebar-${targetTriple()}.tar.gz`;
-const dest = path.join(__dirname, '..', 'bin', 'opensessions-sidebar');
+const url = `https://github.com/.../releases/download/v${version}/herdmux-sidebar-${targetTriple()}.tar.gz`;
+const dest = path.join(__dirname, '..', 'bin', 'herdmux-sidebar');
 const tarball = path.join(__dirname, '..', 'bin', 'tmp.tar.gz');
 
 await download(url, tarball);
@@ -136,7 +136,7 @@ After UPX (optional): ~1.0–1.5 MB. Skip UPX — antivirus heuristics flag it.
 ## Workspace layout
 
 ```
-opensessions/
+herdmux/
 ├── apps/
 │   ├── server/        # TS, unchanged
 │   ├── tui/           # TS (deprecated, kept until Phase 8)
@@ -177,13 +177,13 @@ rustup default stable
 cargo install cargo-watch cargo-bloat cargo-audit
 
 # Hot-reload during dev:
-cargo watch -x 'run -p opensessions-sidebar'
+cargo watch -x 'run -p herdmux-sidebar'
 # or:
-cargo watch -s 'cargo run --release -p opensessions-sidebar'
+cargo watch -s 'cargo run --release -p herdmux-sidebar'
 
 # Inspect binary size:
-cargo bloat --release --crates -p opensessions-sidebar
-cargo bloat --release -p opensessions-sidebar -n 30   # top 30 functions
+cargo bloat --release --crates -p herdmux-sidebar
+cargo bloat --release -p herdmux-sidebar -n 30   # top 30 functions
 
 # Audit deps:
 cargo audit
@@ -198,7 +198,7 @@ artifacts.
 
 ## Compatibility
 
-Server stays TS, so `opensessions-sidebar` (Rust) talks to `apps/server` (TS,
+Server stays TS, so `herdmux-sidebar` (Rust) talks to `apps/server` (TS,
 Bun). Once both are released together, no version mismatch risk in normal
 install.
 
@@ -220,5 +220,5 @@ supports both. No new build artifact needed — same binary handles all muxes.
 
 ## Pre-built binary install via Homebrew (future)
 
-Phase 8+: publish a Homebrew tap so `brew install opensessions/tap/opensessions`
+Phase 8+: publish a Homebrew tap so `brew install herdmux/tap/herdmux`
 works without npm. The npm path stays primary.

@@ -1,28 +1,28 @@
 #!/usr/bin/env bash
-# Start the opensessions TUI sidebar (Rust/Ratatui).
+# Start the herdmux TUI sidebar (Rust/Ratatui).
 
 if [ -n "${TMUX:-}" ]; then
-    OPENSESSIONS_DIR="$(tmux show-environment -g OPENSESSIONS_DIR 2>/dev/null | cut -d= -f2)"
+    HERDMUX_DIR="$(tmux show-environment -g HERDMUX_DIR 2>/dev/null | cut -d= -f2)"
 fi
-OPENSESSIONS_DIR="${OPENSESSIONS_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)}"
+HERDMUX_DIR="${HERDMUX_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 
 RUST_BIN=""
-if [ -x "$OPENSESSIONS_DIR/bin/opensessions-sidebar" ]; then
-    RUST_BIN="$OPENSESSIONS_DIR/bin/opensessions-sidebar"
-elif [ -x "$OPENSESSIONS_DIR/target/release/opensessions-sidebar" ]; then
-    RUST_BIN="$OPENSESSIONS_DIR/target/release/opensessions-sidebar"
-elif [ -x "$OPENSESSIONS_DIR/target/debug/opensessions-sidebar" ]; then
-    RUST_BIN="$OPENSESSIONS_DIR/target/debug/opensessions-sidebar"
+if [ -x "$HERDMUX_DIR/bin/herdmux-sidebar" ]; then
+    RUST_BIN="$HERDMUX_DIR/bin/herdmux-sidebar"
+elif [ -x "$HERDMUX_DIR/target/release/herdmux-sidebar" ]; then
+    RUST_BIN="$HERDMUX_DIR/target/release/herdmux-sidebar"
+elif [ -x "$HERDMUX_DIR/target/debug/herdmux-sidebar" ]; then
+    RUST_BIN="$HERDMUX_DIR/target/debug/herdmux-sidebar"
 fi
 
 if [ -z "$RUST_BIN" ]; then
-    echo "opensessions: sidebar binary not found. Reinstall/update opensessions, or build locally with: cd $OPENSESSIONS_DIR && cargo build --release -p opensessions-sidebar" >&2
+    echo "herdmux: sidebar binary not found. Reinstall/update herdmux, or build locally with: cd $HERDMUX_DIR && cargo build --release -p herdmux-sidebar" >&2
     exit 1
 fi
 
 export REFOCUS_WINDOW
-export OPENSESSIONS_DIR
+export HERDMUX_DIR
 
-printf '\n--- launch %s pid=%s ---\n' "$(date +%s)" "$$" >>/tmp/opensessions-err.log
+printf '\n--- launch %s pid=%s ---\n' "$(date +%s)" "$$" >>/tmp/herdmux-err.log
 export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
-exec "$RUST_BIN" 2>>/tmp/opensessions-err.log
+exec "$RUST_BIN" 2>>/tmp/herdmux-err.log

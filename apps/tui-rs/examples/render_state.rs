@@ -1,4 +1,4 @@
-use opensessions_sidebar_core::{
+use herdmux_sidebar_core::{
     app::App, generated::protocol::ServerMessage, renderer::render_app,
 };
 use ratatui::{Terminal, backend::TestBackend};

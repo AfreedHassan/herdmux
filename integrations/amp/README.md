@@ -1,4 +1,4 @@
-# opensessions plugin for Amp
+# herdmux plugin for Amp
 
 Real-time agent status for Amp threads, driven by the Amp plugin API instead
 of by polling Amp's cloud API.
@@ -11,18 +11,18 @@ The cloud API approach (built-in `AmpAgentWatcher`) works, but:
 - Local threads (`usesDtw: false`) require detail fetches on every version bump.
 - Amp's DTW WebSocket protocol is "in flux" per the Amp team and may change.
 
-When this plugin is installed, opensessions uses its events as the source of
+When this plugin is installed, herdmux uses its events as the source of
 truth and automatically suppresses cloud API calls for any thread the plugin
 has reported on. If the plugin goes silent for 5 minutes, the watcher falls
 back to polling.
 
 ## Install
 
-Copy (or symlink) `opensessions.ts` into `~/.config/amp/plugins/`:
+Copy (or symlink) `herdmux.ts` into `~/.config/amp/plugins/`:
 
 ```sh
 mkdir -p ~/.config/amp/plugins
-cp integrations/amp/opensessions.ts ~/.config/amp/plugins/opensessions.ts
+cp integrations/amp/herdmux.ts ~/.config/amp/plugins/herdmux.ts
 ```
 
 Restart Amp. A recent Amp build that exposes `ctx.thread.id` on `session.start`
@@ -32,11 +32,11 @@ is required.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `OPENSESSIONS_URL` | `http://127.0.0.1:7391` | opensessions server base URL |
+| `HERDMUX_URL` | `http://127.0.0.1:7391` | herdmux server base URL |
 
 ## Event mapping
 
-| Amp event | opensessions status |
+| Amp event | herdmux status |
 | --- | --- |
 | `session.start` | `idle` |
 | `agent.start` | `running` |

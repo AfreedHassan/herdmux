@@ -1,18 +1,18 @@
-# opensessions Product Context
+# herdmux Product Context
 
 ## Register
 
-Product. opensessions is a task-focused terminal sidebar for developers who already live in tmux.
+Product. herdmux is a task-focused terminal sidebar for developers who already live in tmux.
 
 ## Purpose
 
-opensessions keeps session switching, agent status, repo context, localhost links, and worktree navigation visible inside the user’s existing terminal workflow. It should make a crowded tmux server feel legible without replacing tmux.
+herdmux keeps session switching, agent status, repo context, localhost links, and worktree navigation visible inside the user’s existing terminal workflow. It should make a crowded tmux server feel legible without replacing tmux.
 
 ## Target Users
 
 - Developers running many tmux sessions, windows, worktrees, and AI agent processes at once.
 - Terminal-first users who value fast keyboard navigation and predictable state over decorative UI.
-- Plugin users who expect opensessions to stay lightweight, native, and mux-aware.
+- Plugin users who expect herdmux to stay lightweight, native, and mux-aware.
 
 ## Design Principles
 

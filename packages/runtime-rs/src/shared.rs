@@ -39,31 +39,31 @@ impl ServerKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OpensessionsEndpoint {
+pub struct HerdmuxEndpoint {
     pub server_key: Option<ServerKey>,
     pub host: String,
     pub port: u16,
     pub pid_file: PathBuf,
 }
 
-impl OpensessionsEndpoint {
+impl HerdmuxEndpoint {
     pub fn from_env(env: impl Fn(&str) -> Option<String>, rust_port_base: bool) -> Self {
         let socket = env("TMUX").and_then(|tmux| TmuxSocketPath::from_tmux_env(&tmux));
-        let explicit_key = env("OPENSESSIONS_SERVER_KEY")
+        let explicit_key = env("HERDMUX_SERVER_KEY")
             .and_then(|value| value.trim().parse::<u16>().ok())
             .map(ServerKey);
         let server_key = explicit_key.or_else(|| socket.as_ref().map(TmuxSocketPath::server_key));
-        let host = resolve_server_host(env("OPENSESSIONS_HOST").as_deref());
+        let host = resolve_server_host(env("HERDMUX_HOST").as_deref());
         let port_base = if rust_port_base { 22_000 } else { 17_000 };
         let server_key_string = server_key.map(|key| key.0.to_string());
         let port = resolve_server_port_with_base(
             server_key_string.as_deref(),
-            env("OPENSESSIONS_PORT").as_deref(),
+            env("HERDMUX_PORT").as_deref(),
             port_base,
         );
         let pid_file = PathBuf::from(resolve_pid_file(
             server_key_string.as_deref(),
-            env("OPENSESSIONS_PID_FILE").as_deref(),
+            env("HERDMUX_PID_FILE").as_deref(),
         ));
         Self {
             server_key,
@@ -83,7 +83,7 @@ pub fn hash_server_key(input: &str) -> u16 {
 }
 
 pub fn resolve_server_key(env: impl Fn(&str) -> Option<String>) -> Option<String> {
-    if let Some(explicit) = env("OPENSESSIONS_SERVER_KEY")
+    if let Some(explicit) = env("HERDMUX_SERVER_KEY")
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
     {
@@ -106,7 +106,7 @@ pub fn resolve_server_port(server_key: Option<&str>, explicit: Option<&str>) -> 
 /// Compute the port like [`resolve_server_port`] but with a configurable base.
 /// Mirrors the `PORT_BASE` branch in
 /// `integrations/tmux-plugin/scripts/server-common.sh` so the Rust server can
-/// pin 22000+server_key when `OPENSESSIONS_RUST=1` and coexist with the TS
+/// pin 22000+server_key when `HERDMUX_RUST=1` and coexist with the TS
 /// legacy server (17000+server_key) on the same tmux socket.
 pub fn resolve_server_port_with_base(
     server_key: Option<&str>,
@@ -144,16 +144,16 @@ pub fn resolve_pid_file(server_key: Option<&str>, explicit: Option<&str>) -> Str
     }
 
     match server_key {
-        Some(key) => format!("/tmp/opensessions.{key}.pid"),
-        None => "/tmp/opensessions.pid".to_string(),
+        Some(key) => format!("/tmp/herdmux.{key}.pid"),
+        None => "/tmp/herdmux.pid".to_string(),
     }
 }
 
 pub fn resolve_server_settings(env: impl Fn(&str) -> Option<String>) -> ServerSettings {
-    let rust_port_base = env("OPENSESSIONS_RUST")
+    let rust_port_base = env("HERDMUX_RUST")
         .map(|value| value.trim() == "1")
         .unwrap_or(false);
-    let endpoint = OpensessionsEndpoint::from_env(env, rust_port_base);
+    let endpoint = HerdmuxEndpoint::from_env(env, rust_port_base);
 
     ServerSettings {
         server_key: endpoint.server_key.map(|key| key.0.to_string()),

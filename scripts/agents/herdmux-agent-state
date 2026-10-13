@@ -1,0 +1,15 @@
+#!/bin/sh
+# Agent hook: record this pane's agent state for Herdmux.
+#   herdmux-agent-state <running|needs-input|done|off>
+# Stores it as the tmux pane option @herdmux_state, which the sidebar
+# reads locally and over ssh. Silent and always exits 0 so it can never
+# block or inject output into the agent.
+cat >/dev/null 2>&1
+[ -n "${TMUX_PANE:-}" ] || exit 0
+case "${1:-}" in
+    running|needs-input|done)
+        tmux set-option -p -t "$TMUX_PANE" @herdmux_state "$1" >/dev/null 2>&1 ;;
+    off)
+        tmux set-option -pu -t "$TMUX_PANE" @herdmux_state >/dev/null 2>&1 ;;
+esac
+exit 0

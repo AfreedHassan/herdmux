@@ -1,6 +1,6 @@
-# How opensessions Works
+# How herdmux Works
 
-opensessions is a local coordination layer between your multiplexer, your agent tools, and a terminal sidebar UI.
+herdmux is a local coordination layer between your multiplexer, your agent tools, and a terminal sidebar UI.
 
 It is easiest to think about it as four pieces:
 
@@ -11,11 +11,11 @@ It is easiest to think about it as four pieces:
 
 ## Startup Flow
 
-When the tmux plugin or sidebar starts, the helper scripts ensure an `opensessions-server` process is running for the current tmux socket.
+When the tmux plugin or sidebar starts, the helper scripts ensure an `herdmux-server` process is running for the current tmux socket.
 
-If no healthy server is listening, `integrations/tmux-plugin/scripts/server-common.sh` launches the Rust `opensessions-server` binary. The server then:
+If no healthy server is listening, `integrations/tmux-plugin/scripts/server-common.sh` launches the Rust `herdmux-server` binary. The server then:
 
-1. loads config from `~/.config/opensessions/config.json`
+1. loads config from `~/.config/herdmux/config.json`
 2. registers the built-in tmux provider
 3. resolves the primary mux provider
 4. starts built-in scanner loops for Amp, Claude Code, Codex, OpenCode, Pi, and Droid
@@ -94,10 +94,10 @@ That centralization matters for three reasons:
 
 The runtime keeps a small set of operational files:
 
-- `/tmp/opensessions.pid` for server bootstrap health checks
-- `/tmp/opensessions-debug.log` for best-effort debug logging
-- `~/.config/opensessions/session-order.json` for user-controlled session ordering
-- `~/.config/opensessions/config.json` for user configuration
+- `/tmp/herdmux.pid` for server bootstrap health checks
+- `/tmp/herdmux-debug.log` for best-effort debug logging
+- `~/.config/herdmux/session-order.json` for user-controlled session ordering
+- `~/.config/herdmux/config.json` for user configuration
 
 ## Current Constraints
 

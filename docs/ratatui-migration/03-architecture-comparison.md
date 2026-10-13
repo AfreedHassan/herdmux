@@ -27,7 +27,7 @@
 - Detect mux context (tmux/zellij/none) from env vars at startup.
 - Connect to WS, subscribe to `ServerMessage`s.
 - Render with OpenTUI flexbox + Solid reactive primitives.
-- Read/write `~/.config/opensessions/config.json` directly (`loadConfig`/`saveConfig`).
+- Read/write `~/.config/herdmux/config.json` directly (`loadConfig`/`saveConfig`).
 - Spawn `tmux` subprocesses for `getClientTty`, `getLocalSessionName`,
   `getLocalWindowId`, `refocusMainPane`.
 - Spawn `open <url|dir>` on mouse clicks.

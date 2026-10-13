@@ -14,7 +14,7 @@ If the new client renders even a single character differently from these snapsho
 |---|---|---|
 | `reference-snapshots/pane-attached-session-list.png` | 35×56 | **Visual ground truth** (rendered PNG) — use as the human-eye comparison |
 | `reference-snapshots/pane-attached-session-list.txt` / `.ansi` | 35×56 | Currently-attached session highlighted, focused agent in detail panel (Catppuccin Mocha) |
-| `reference-snapshots/pane-opensessions-self.txt` / `.ansi` | 35×55 | The opensessions repo itself focused, "Query tmux for open sessions" agent thread |
+| `reference-snapshots/pane-herdmux-self.txt` / `.ansi` | 35×55 | The herdmux repo itself focused, "Query tmux for open sessions" agent thread |
 | `reference-snapshots/pane-multi-window.txt` / `.ansi` | 35×56 | A pane in a many-window session (5+ panes) |
 
 - `.png` = pixel-perfect visual reference (the **must-match-this** image)
@@ -27,7 +27,7 @@ If the new client renders even a single character differently from these snapsho
 - **Focused row has a filled `surface1` (#45475a) background** spanning the full pane width
   (not just behind the text). The `▌` focus bar in front is `green` (#a6e3a1), suggesting
   it doubles as the "currently-attached session" indicator (matches the bar color seen
-  in the screenshot for session 4 — opensessions itself).
+  in the screenshot for session 4 — herdmux itself).
 - **Status icons on the right edge**: `✓` in `green` for `done`, `○` in `overlay0` for `idle`.
 - **Footer glyph** for cycle is `↪` (curved-arrow), not `⇥`. (The text capture lost the
   exact glyph due to ambiguous-width handling.) Actual sequence per `themes.ts` and
@@ -36,7 +36,7 @@ If the new client renders even a single character differently from these snapsho
   = 4 rows per session). Detail panel separated by a `─` rule with one blank line
   above and below.
 - **Detail panel sub-header** uses `…` as the truncation marker for long paths
-  (`…ments/work/opensessions`).
+  (`…ments/work/herdmux`).
 
 ## Color palette in use (Catppuccin Mocha — currently active theme)
 
@@ -104,7 +104,7 @@ From inspection of the snapshots + `apps/tui/src/index.tsx`:
 - **`open` dir on click** — when a session row is *focused*, clicking its dirname
   opens the directory in Finder.
 - **Detail-panel resize** — drag the divider; height persisted to config per
-  session. Debug log written to `/tmp/opensessions-tui-resize.log`.
+  session. Debug log written to `/tmp/herdmux-tui-resize.log`.
 - **Mouse selection of session row** — focus follows click.
 
 ## Keybind table (must be 1:1)
@@ -130,7 +130,7 @@ For each reference snapshot:
 ```sh
 # 1. Set the same theme + state in the running daemon
 # 2. Run the Rust client at the same pane size
-opensessions-sidebar --width 35 --height 56 > out.ansi
+herdmux-sidebar --width 35 --height 56 > out.ansi
 
 # 3. Diff against reference
 diff <(strip-ansi reference-snapshots/pane-attached-session-list.ansi) <(strip-ansi out.ansi)

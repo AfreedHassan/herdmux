@@ -1,16 +1,16 @@
 #!/usr/bin/env sh
-# opensessions uninstall — clean up all tmux hooks, keybindings, sidebar panes, and env vars
+# herdmux uninstall — clean up all tmux hooks, keybindings, sidebar panes, and env vars
 # Run this BEFORE removing the plugin files.
 #
 # Usage:
-#   sh /path/to/opensessions/integrations/tmux-plugin/scripts/uninstall.sh
+#   sh /path/to/herdmux/integrations/tmux-plugin/scripts/uninstall.sh
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/server-common.sh"
 
-echo "opensessions: uninstalling..."
+echo "herdmux: uninstalling..."
 
 # --- Remove global hooks ---
 for hook in \
@@ -28,8 +28,8 @@ done
 echo "  ✓ removed global hooks"
 
 # --- Kill sidebar panes ---
-# Find all panes titled "opensessions-sidebar" and kill them
-sidebar_panes=$(tmux list-panes -a -F '#{pane_id} #{pane_title}' 2>/dev/null | grep 'opensessions-sidebar' | awk '{print $1}') || true
+# Find all panes titled "herdmux-sidebar" and kill them
+sidebar_panes=$(tmux list-panes -a -F '#{pane_id} #{pane_title}' 2>/dev/null | grep 'herdmux-sidebar' | awk '{print $1}') || true
 if [ -n "$sidebar_panes" ]; then
   for pane in $sidebar_panes; do
     tmux kill-pane -t "$pane" 2>/dev/null || true
@@ -46,19 +46,19 @@ curl -s -o /dev/null -X POST "http://${HOST}:${PORT}/shutdown" 2>/dev/null || tr
 echo "  ✓ stopped server (if running)"
 
 # --- Remove keybindings ---
-# Command table bindings (opensessions key table)
-PREFIX_KEY=$(tmux show-option -gqv "@opensessions-prefix-key" 2>/dev/null)
+# Command table bindings (herdmux key table)
+PREFIX_KEY=$(tmux show-option -gqv "@herdmux-prefix-key" 2>/dev/null)
 PREFIX_KEY="${PREFIX_KEY:-o}"
 tmux unbind-key "$PREFIX_KEY" 2>/dev/null || true
 
-# Unbind all keys in the opensessions command table
-tmux unbind-key -T opensessions s 2>/dev/null || true
-tmux unbind-key -T opensessions t 2>/dev/null || true
-tmux unbind-key -T opensessions e 2>/dev/null || true
+# Unbind all keys in the herdmux command table
+tmux unbind-key -T herdmux s 2>/dev/null || true
+tmux unbind-key -T herdmux t 2>/dev/null || true
+tmux unbind-key -T herdmux e 2>/dev/null || true
 for i in 1 2 3 4 5 6 7 8 9; do
-  tmux unbind-key -T opensessions "$i" 2>/dev/null || true
+  tmux unbind-key -T herdmux "$i" 2>/dev/null || true
 done
-tmux unbind-key -T opensessions Any 2>/dev/null || true
+tmux unbind-key -T herdmux Any 2>/dev/null || true
 
 # Direct prefix bindings
 tmux unbind-key C-s 2>/dev/null || true
@@ -68,23 +68,23 @@ for i in 1 2 3 4 5 6 7 8 9; do
 done
 
 # Global keys (if configured)
-FOCUS_GLOBAL_KEY=$(tmux show-option -gqv "@opensessions-focus-global-key" 2>/dev/null)
+FOCUS_GLOBAL_KEY=$(tmux show-option -gqv "@herdmux-focus-global-key" 2>/dev/null)
 if [ -n "$FOCUS_GLOBAL_KEY" ]; then
   tmux unbind-key -n "$FOCUS_GLOBAL_KEY" 2>/dev/null || true
 fi
-INDEX_KEYS=$(tmux show-option -gqv "@opensessions-index-keys" 2>/dev/null)
+INDEX_KEYS=$(tmux show-option -gqv "@herdmux-index-keys" 2>/dev/null)
 for key in $INDEX_KEYS; do
   tmux unbind-key -n "$key" 2>/dev/null || true
 done
 echo "  ✓ removed keybindings"
 
 # --- Remove environment variables ---
-tmux set-environment -gu OPENSESSIONS_DIR 2>/dev/null || true
-tmux set-environment -gu OPENSESSIONS_WIDTH 2>/dev/null || true
-tmux set-environment -gu OPENSESSIONS_HOST 2>/dev/null || true
-tmux set-environment -gu OPENSESSIONS_PORT 2>/dev/null || true
-tmux set-environment -gu OPENSESSIONS_PID_FILE 2>/dev/null || true
+tmux set-environment -gu HERDMUX_DIR 2>/dev/null || true
+tmux set-environment -gu HERDMUX_WIDTH 2>/dev/null || true
+tmux set-environment -gu HERDMUX_HOST 2>/dev/null || true
+tmux set-environment -gu HERDMUX_PORT 2>/dev/null || true
+tmux set-environment -gu HERDMUX_PID_FILE 2>/dev/null || true
 echo "  ✓ removed environment variables"
 
-echo "opensessions: uninstall complete. You can now remove the plugin files."
+echo "herdmux: uninstall complete. You can now remove the plugin files."
 echo "  If using TPM: remove the line from .tmux.conf and run prefix + alt + u"

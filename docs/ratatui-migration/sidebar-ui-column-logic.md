@@ -15,12 +15,12 @@ The sidebar uses terminal-native spacing, not bordered cards:
 › 01 ○ learning
       main
 
-▌ 04 ⚙ opensessions
+▌ 04 ⚙ herdmux
       ratatui-migration
 
  ───────────────────────────────────────
  agents 1                        current
- /tmp/opensessions
+ /tmp/herdmux
 
   ⚙ Query tmux for open sessions
     working · amp
@@ -49,7 +49,7 @@ Examples:
 ```text
 › 01 ○ learning
   02 ⠹ background-export
-▌ 04 ⚙ opensessions
+▌ 04 ⚙ herdmux
 ```
 
 The marker column is one cell:
@@ -141,7 +141,7 @@ thread/task name when available:
 
 ```text
  agents 1                        current
- /tmp/opensessions
+ /tmp/herdmux
 
   ⚙ Query tmux for open sessions
     working · amp
@@ -158,7 +158,7 @@ work lives:
 ```text
  agents 2                            all
 
-  ⚙ opensessions · Query tmux for op…
+  ⚙ herdmux · Query tmux for op…
 
   ● plane · Review PR
 ```
@@ -172,7 +172,7 @@ Interaction remains unchanged:
 
 ## Test coverage
 
-The concrete rendering rules above are covered by `opensessions-sidebar-core`
+The concrete rendering rules above are covered by `herdmux-sidebar-core`
 unit tests that build the real render model:
 
 - `session_rows_show_inline_agent_signals_and_spaced_header`

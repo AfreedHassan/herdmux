@@ -16,7 +16,7 @@ pub enum SidebarPosition {
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct OpensessionsConfig {
+pub struct HerdmuxConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mux: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -41,18 +41,18 @@ pub struct OpensessionsConfig {
 
 pub fn config_path_from_home(home: &Path) -> PathBuf {
     home.join(".config")
-        .join("opensessions")
+        .join("herdmux")
         .join("config.json")
 }
 
-pub fn load_config_from_home(home: &Path) -> OpensessionsConfig {
+pub fn load_config_from_home(home: &Path) -> HerdmuxConfig {
     let path = config_path_from_home(home);
     let Ok(raw) = fs::read_to_string(path) else {
-        return OpensessionsConfig::default();
+        return HerdmuxConfig::default();
     };
 
-    let Ok(mut config) = serde_json::from_str::<OpensessionsConfig>(&raw) else {
-        return OpensessionsConfig::default();
+    let Ok(mut config) = serde_json::from_str::<HerdmuxConfig>(&raw) else {
+        return HerdmuxConfig::default();
     };
 
     if config.plugins.is_empty() {
@@ -62,7 +62,7 @@ pub fn load_config_from_home(home: &Path) -> OpensessionsConfig {
     config
 }
 
-pub fn save_config_to_home(home: &Path, updates: OpensessionsConfig) -> io::Result<()> {
+pub fn save_config_to_home(home: &Path, updates: HerdmuxConfig) -> io::Result<()> {
     let path = config_path_from_home(home);
     let existing = fs::read_to_string(&path)
         .ok()
@@ -84,7 +84,7 @@ pub fn save_config_to_home(home: &Path, updates: OpensessionsConfig) -> io::Resu
     fs::write(path, format!("{encoded}\n"))
 }
 
-fn update_map(updates: OpensessionsConfig) -> Map<String, Value> {
+fn update_map(updates: HerdmuxConfig) -> Map<String, Value> {
     let mut map = Map::new();
 
     insert_option(&mut map, "mux", updates.mux);

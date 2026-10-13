@@ -1,15 +1,15 @@
 {
-  "name": "@opensessions/pi-extension",
+  "name": "@herdmux/pi-extension",
   "version": "0.1.0",
-  "description": "Pi extension that registers the live pi process with opensessions",
+  "description": "Pi extension that registers the live pi process with herdmux",
   "private": true,
   "pi": {
     "extensions": [
-      "./opensessions-runtime.ts"
+      "./herdmux-runtime.ts"
     ]
   },
   "files": [
-    "opensessions-runtime.ts",
+    "herdmux-runtime.ts",
     "README.md"
   ]
 }

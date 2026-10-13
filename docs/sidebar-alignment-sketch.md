@@ -16,7 +16,7 @@ Current live sidebar shape is roughly this — and it shows the alignment proble
        feat/databases
      5 preview
        preview
- ▌  6 opensessions
+ ▌  6 herdmux
       f…  ⌁41916 +779 -590
     7 effect-ts
 
@@ -32,7 +32,7 @@ Current live sidebar shape is roughly this — and it shows the alignment proble
 
  ─────────────────────────
  agents 2        a:current
- …ments/work/opensessions
+ …ments/work/herdmux
  local localhost:41916
 
   ⠸ better grouping
@@ -90,7 +90,7 @@ Painter-inspired target grid:
 │   │ 05  preview
 │   │     preview
 │
-│▌  06  opensessions
+│▌  06  herdmux
 │       feat/fix-ratatui…    ⌁41916  +779  -590
 │
 │   07  api
@@ -111,7 +111,7 @@ Painter-inspired target grid:
 
 ──────────────────────────────────
   agents 2                 a:current
-  ~/projects/opensessions
+  ~/projects/herdmux
   local  localhost
 
   ⠸  a  ratatui-refactor       current

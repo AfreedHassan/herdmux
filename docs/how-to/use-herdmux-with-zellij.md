@@ -1,6 +1,6 @@
 # Zellij Support Status
 
-`tmux` is the only supported mux for opensessions today.
+`tmux` is the only supported mux for herdmux today.
 
 The repository still contains older zellij integration code and helper scripts, but that path is not stable enough for us to recommend or document as a supported setup.
 

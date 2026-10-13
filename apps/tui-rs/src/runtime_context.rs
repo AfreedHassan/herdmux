@@ -17,7 +17,7 @@ where
 ///
 /// `env` reads process environment variables. `tmux_query` invokes
 /// `tmux display-message -p -t <target> <format>` and returns the trimmed
-/// stdout. Tmux is only consulted when the corresponding `OPENSESSIONS_*`
+/// stdout. Tmux is only consulted when the corresponding `HERDMUX_*`
 /// env vars are absent.
 pub fn pane_identity_resolve<F, T>(env: F, tmux_query: T) -> Option<PaneIdentity>
 where
@@ -28,7 +28,7 @@ where
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())?;
 
-    let session_name = env("OPENSESSIONS_SESSION_NAME")
+    let session_name = env("HERDMUX_SESSION_NAME")
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .or_else(|| {
@@ -37,7 +37,7 @@ where
                 .filter(|value| !value.is_empty())
         })?;
 
-    let window_id = env("OPENSESSIONS_WINDOW_ID")
+    let window_id = env("HERDMUX_WINDOW_ID")
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .or_else(|| {
@@ -91,7 +91,7 @@ where
     let main_line = panes
         .lines()
         .map(str::trim)
-        .find(|line| !line.is_empty() && !line.contains("opensessions-sidebar"))?;
+        .find(|line| !line.is_empty() && !line.contains("herdmux-sidebar"))?;
     let main_pane = main_line.split_whitespace().next()?;
 
     Some(RefocusPlan {

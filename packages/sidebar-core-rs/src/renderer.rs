@@ -1,4 +1,4 @@
-use opensessions_runtime::sidebar_width_sync::{MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH};
+use herdmux_runtime::sidebar_width_sync::{MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
@@ -3136,7 +3136,7 @@ mod tests {
         let mut app = App::from_state(ServerState {
             sessions,
             focused_session: None,
-            current_session: Some("opensessions".to_string()),
+            current_session: Some("herdmux".to_string()),
             theme: None,
             session_filter: None,
             agent_panel_scope: AgentPanelScope::Current,
@@ -3147,7 +3147,7 @@ mod tests {
             collapsed_worktree_groups: Vec::new(),
             ts: 240,
         });
-        app.current_session = Some("opensessions".to_string());
+        app.current_session = Some("herdmux".to_string());
         app
     }
 
@@ -3177,9 +3177,9 @@ mod tests {
     fn app_with_diff_stats() -> App {
         App::from_state(ServerState {
             sessions: vec![SessionData {
-                name: "opensessions".to_string(),
+                name: "herdmux".to_string(),
                 created_at: 0,
-                dir: "/tmp/opensessions".to_string(),
+                dir: "/tmp/herdmux".to_string(),
                 branch: "main".to_string(),
                 dirty: true,
                 changed_files: 2,
@@ -3198,7 +3198,7 @@ mod tests {
                 metadata: None,
             }],
             focused_session: None,
-            current_session: Some("opensessions".to_string()),
+            current_session: Some("herdmux".to_string()),
             theme: None,
             session_filter: None,
             agent_panel_scope: AgentPanelScope::Current,
@@ -3245,22 +3245,22 @@ mod tests {
 
         assert_eq!(
             compute_hit_target(&app, (diff_start - 1) as u16, detail_row, width, height),
-            Some(HitTarget::Session("opensessions".to_string())),
+            Some(HitTarget::Session("herdmux".to_string())),
             "padding before diff stats should keep the row's session target"
         );
         assert_eq!(
             compute_hit_target(&app, diff_start as u16, detail_row, width, height),
-            Some(HitTarget::DiffCount("opensessions".to_string()))
+            Some(HitTarget::DiffCount("herdmux".to_string()))
         );
         assert_eq!(
             compute_hit_target(&app, width - 1, detail_row, width, height),
-            Some(HitTarget::DiffCount("opensessions".to_string()))
+            Some(HitTarget::DiffCount("herdmux".to_string()))
         );
     }
 
     #[test]
     fn session_agent_badge_hit_target_only_covers_rendered_glyph() {
-        let mut current = session("opensessions", "/tmp/opensessions", "main");
+        let mut current = session("herdmux", "/tmp/herdmux", "main");
         let mut done = agent("amp", AgentStatus::Done, Some("Review PR"));
         done.thread_id = Some("thread-1".to_string());
         done.pane_id = Some("%7".to_string());
@@ -3279,13 +3279,13 @@ mod tests {
 
         assert_eq!(
             compute_hit_target(&app, badge_x.saturating_sub(1) as u16, row, width, height),
-            Some(HitTarget::Session("opensessions".to_string())),
+            Some(HitTarget::Session("herdmux".to_string())),
             "padding before the status glyph should keep the row's session target"
         );
         assert_eq!(
             compute_hit_target(&app, badge_x as u16, row, width, height),
             Some(HitTarget::AgentPane(AgentPaneTarget {
-                session: "opensessions".to_string(),
+                session: "herdmux".to_string(),
                 agent: "amp".to_string(),
                 thread_id: Some("thread-1".to_string()),
                 thread_name: Some("Review PR".to_string()),
@@ -3296,7 +3296,7 @@ mod tests {
 
     #[test]
     fn clicking_session_agent_badge_uses_agent_panel_focus_pane_command_path() {
-        let mut current = session("opensessions", "/tmp/opensessions", "main");
+        let mut current = session("herdmux", "/tmp/herdmux", "main");
         let mut running = agent("amp", AgentStatus::Running, Some("Release build"));
         running.thread_id = Some("thread-2".to_string());
         running.pane_id = Some("%8".to_string());
@@ -3304,7 +3304,7 @@ mod tests {
         let mut app = app_from_sessions(vec![current]);
 
         app.activate_hit_target(HitTarget::AgentPane(AgentPaneTarget {
-            session: "opensessions".to_string(),
+            session: "herdmux".to_string(),
             agent: "amp".to_string(),
             thread_id: Some("thread-2".to_string()),
             thread_name: Some("Release build".to_string()),
@@ -3315,7 +3315,7 @@ mod tests {
             app.drain_commands(),
             vec![
                 ClientCommand::FocusAgentPane {
-                    session: "opensessions".to_string(),
+                    session: "herdmux".to_string(),
                     agent: "amp".to_string(),
                     thread_id: Some("thread-2".to_string()),
                     thread_name: Some("Release build".to_string()),
@@ -3343,7 +3343,7 @@ mod tests {
         let mut unseen_done = agent("amp", AgentStatus::Done, Some("Review PR"));
         unseen_done.unseen = Some(true);
         unseen.agents.push(unseen_done);
-        let mut tool = session("opensessions", "/tmp/opensessions", "ratatui-migration");
+        let mut tool = session("herdmux", "/tmp/herdmux", "ratatui-migration");
         tool.agents
             .push(agent("amp", AgentStatus::ToolRunning, Some("Query tmux")));
 
@@ -3354,15 +3354,15 @@ mod tests {
         assert_has_line(&lines, "› 01 learning                          ✓");
         assert_has_line(&lines, "  02 background-export                 ⠹");
         assert_has_line(&lines, "  03 pdf-word-formatting               ●");
-        assert_has_line(&lines, "▌ 04 opensessions                      ⚙");
+        assert_has_line(&lines, "▌ 04 herdmux                           ⚙");
         assert_has_line(&lines, "  05 effect-ts");
     }
 
     #[test]
     fn session_name_row_right_aligns_mixed_agent_badges_and_truncates_name() {
         let mut mixed = session(
-            "very-long-opensessions-agent-pane-session-name",
-            "/tmp/opensessions",
+            "very-long-herdmux-agent-pane-session-name",
+            "/tmp/herdmux",
             "main",
         );
         mixed
@@ -3378,7 +3378,7 @@ mod tests {
 
         let lines = render_text(&app, 36, 24);
 
-        assert_has_line(&lines, "› 01 very-long-opensessions-a… ? ● ✓");
+        assert_has_line(&lines, "› 01 very-long-herdmux-agent-… ? ● ✓");
     }
 
     #[test]
@@ -3471,7 +3471,7 @@ mod tests {
 
     #[test]
     fn agent_panel_uses_clean_current_and_all_scope_labels() {
-        let mut current = session("opensessions", "/tmp/opensessions", "main");
+        let mut current = session("herdmux", "/tmp/herdmux", "main");
         current.agents.push(agent(
             "amp",
             AgentStatus::ToolRunning,
@@ -3483,7 +3483,7 @@ mod tests {
         unseen_agent.unseen = Some(true);
         other.agents.push(unseen_agent);
         let mut app = app_from_sessions(vec![current, other]);
-        app.set_focused_session("opensessions");
+        app.set_focused_session("herdmux");
 
         let current_lines = render_text(&app, 40, 24);
         assert_has_line(&current_lines, " agents 1                        current");
@@ -3494,14 +3494,14 @@ mod tests {
         let all_lines = render_text(&app, 40, 24);
         assert_has_line(&all_lines, " agents 2                            all");
         assert_has_line(&all_lines, " ⚙ Query tmux for open sessions");
-        assert_has_line(&all_lines, "   opensessions");
+        assert_has_line(&all_lines, "   herdmux");
         assert_has_line(&all_lines, " ● Review PR");
         assert_has_line(&all_lines, "   plane");
     }
 
     #[test]
     fn agent_panel_uses_agent_unseen_not_session_unseen_for_done_rows() {
-        let mut current = session("opensessions", "/tmp/opensessions", "main");
+        let mut current = session("herdmux", "/tmp/herdmux", "main");
         current.unseen = true;
         let mut seen_done = agent("amp", AgentStatus::Done, Some("Already reviewed"));
         seen_done.unseen = None;
@@ -3510,7 +3510,7 @@ mod tests {
         current.agents.push(seen_done);
         current.agents.push(unseen_done);
         let mut app = app_from_sessions(vec![current]);
-        app.set_focused_session("opensessions");
+        app.set_focused_session("herdmux");
 
         let lines = render_text(&app, 44, 24);
 
@@ -3520,7 +3520,7 @@ mod tests {
 
     #[test]
     fn overflowing_agent_panel_exposes_scrollbar_model() {
-        let mut current = session("opensessions", "/tmp/opensessions", "main");
+        let mut current = session("herdmux", "/tmp/herdmux", "main");
         for idx in 0..12 {
             current.agents.push(agent(
                 "amp",
@@ -3529,7 +3529,7 @@ mod tests {
             ));
         }
         let mut app = app_from_sessions(vec![current]);
-        app.set_focused_session("opensessions");
+        app.set_focused_session("herdmux");
 
         let model = build_model(&app, 40, 24);
         let scrollbar = model
@@ -3542,7 +3542,7 @@ mod tests {
 
     #[test]
     fn agent_detail_panel_shows_last_user_prompt_without_polluting_session_rows() {
-        let mut current = session("opensessions", "/tmp/opensessions", "main");
+        let mut current = session("herdmux", "/tmp/herdmux", "main");
         let mut active_agent = agent("codex", AgentStatus::Running, Some("Sidebar polish"));
         active_agent.last_user_prompt = Some(
             "Make the grouped session tree tighter and keep the focused marker stable without letting a very long prompt consume the entire agent panel or shift the session rows"
@@ -3550,11 +3550,11 @@ mod tests {
         );
         current.agents.push(active_agent);
         let mut app = app_from_sessions(vec![current]);
-        app.set_focused_session("opensessions");
+        app.set_focused_session("herdmux");
 
         let lines = render_text(&app, 44, 24);
 
-        assert_has_line(&lines, "▌ 01 opensessions                          ⠹");
+        assert_has_line(&lines, "▌ 01 herdmux                               ⠹");
         assert!(
             !lines
                 .iter()
@@ -3569,7 +3569,7 @@ mod tests {
 
     #[test]
     fn session_row_shows_two_repeated_agent_statuses_without_count() {
-        let mut current = session("opensessions", "/tmp/opensessions", "main");
+        let mut current = session("herdmux", "/tmp/herdmux", "main");
         current
             .agents
             .push(agent("amp", AgentStatus::Running, Some("Roadmap")));
@@ -3577,16 +3577,16 @@ mod tests {
             .agents
             .push(agent("amp", AgentStatus::Running, Some("Release")));
         let mut app = app_from_sessions(vec![current]);
-        app.set_focused_session("opensessions");
+        app.set_focused_session("herdmux");
 
         let lines = render_text(&app, 44, 24);
 
-        assert_has_line(&lines, "▌ 01 opensessions                        ⠹ ⠹");
+        assert_has_line(&lines, "▌ 01 herdmux                             ⠹ ⠹");
     }
 
     #[test]
     fn session_row_shows_three_repeated_agent_statuses_without_count() {
-        let mut current = session("opensessions", "/tmp/opensessions", "main");
+        let mut current = session("herdmux", "/tmp/herdmux", "main");
         current
             .agents
             .push(agent("amp", AgentStatus::Running, Some("Roadmap")));
@@ -3597,16 +3597,16 @@ mod tests {
             .agents
             .push(agent("amp", AgentStatus::Running, Some("Review")));
         let mut app = app_from_sessions(vec![current]);
-        app.set_focused_session("opensessions");
+        app.set_focused_session("herdmux");
 
         let lines = render_text(&app, 44, 24);
 
-        assert_has_line(&lines, "▌ 01 opensessions                      ⠹ ⠹ ⠹");
+        assert_has_line(&lines, "▌ 01 herdmux                           ⠹ ⠹ ⠹");
     }
 
     #[test]
     fn session_row_overflow_counts_hidden_repeated_statuses() {
-        let mut current = session("opensessions", "/tmp/opensessions", "main");
+        let mut current = session("herdmux", "/tmp/herdmux", "main");
         current
             .agents
             .push(agent("amp", AgentStatus::Running, Some("Roadmap")));
@@ -3620,16 +3620,16 @@ mod tests {
             .agents
             .push(agent("amp", AgentStatus::Running, Some("Polish")));
         let mut app = app_from_sessions(vec![current]);
-        app.set_focused_session("opensessions");
+        app.set_focused_session("herdmux");
 
         let lines = render_text(&app, 44, 24);
 
-        assert_has_line(&lines, "▌ 01 opensessions                   ⠹ ⠹ ⠹ +1");
+        assert_has_line(&lines, "▌ 01 herdmux                        ⠹ ⠹ ⠹ +1");
     }
 
     #[test]
     fn session_row_overflow_counts_hidden_distinct_status_kinds() {
-        let mut current = session("opensessions", "/tmp/opensessions", "main");
+        let mut current = session("herdmux", "/tmp/herdmux", "main");
         current
             .agents
             .push(agent("amp", AgentStatus::Error, Some("Error")));
@@ -3643,11 +3643,11 @@ mod tests {
         unseen_done.unseen = Some(true);
         current.agents.push(unseen_done);
         let mut app = app_from_sessions(vec![current]);
-        app.set_focused_session("opensessions");
+        app.set_focused_session("herdmux");
 
         let lines = render_text(&app, 44, 24);
 
-        assert_has_line(&lines, "▌ 01 opensessions                   ✗ ? ⠹ +1");
+        assert_has_line(&lines, "▌ 01 herdmux                        ✗ ? ⠹ +1");
     }
 
     #[test]

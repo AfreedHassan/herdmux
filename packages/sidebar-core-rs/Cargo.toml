@@ -1,14 +1,14 @@
 [package]
-name = "opensessions-sidebar-core"
+name = "herdmux-sidebar-core"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "opensessions_sidebar_core"
+name = "herdmux_sidebar_core"
 path = "src/lib.rs"
 
 [dependencies]
-opensessions-runtime = { path = "../runtime-rs" }
+herdmux-runtime = { path = "../runtime-rs" }
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 unicode-width = "0.2"

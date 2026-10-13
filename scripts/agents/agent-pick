@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fuzzy-pick a live agent from OpenSessions and jump straight to its pane."""
+"""Fuzzy-pick a live agent from Herdmux and jump straight to its pane."""
 
 import argparse
 import json
@@ -24,14 +24,14 @@ STATUS_GLYPH = {
 def server_endpoint() -> tuple[str, str]:
     """Host/port the way the tmux plugin resolves them (env, tmux env,
     per-server key), by sourcing its side-effect-free server-common.sh."""
-    if os.environ.get("OPENSESSIONS_PORT"):
-        return os.environ.get("OPENSESSIONS_HOST", "127.0.0.1"), os.environ["OPENSESSIONS_PORT"]
+    if os.environ.get("HERDMUX_PORT"):
+        return os.environ.get("HERDMUX_HOST", "127.0.0.1"), os.environ["HERDMUX_PORT"]
     candidates = [
-        os.environ.get("OPENSESSIONS_DIR", ""),
-        subprocess.run(["tmux", "show-environment", "-g", "OPENSESSIONS_DIR"],
+        os.environ.get("HERDMUX_DIR", ""),
+        subprocess.run(["tmux", "show-environment", "-g", "HERDMUX_DIR"],
                        capture_output=True, text=True).stdout.partition("=")[2].strip(),
         str(Path(__file__).resolve().parents[2]),
-        str(Path.home() / ".tmux/plugins/opensessions"),
+        str(Path.home() / ".tmux/plugins/herdmux"),
     ]
     for root in filter(None, candidates):
         common = Path(root) / "integrations/tmux-plugin/scripts/server-common.sh"
@@ -176,7 +176,7 @@ def main() -> int:
     try:
         agents = fetch_agents(host, port)
     except (URLError, OSError, ValueError) as error:
-        print(f"OpenSessions agents unavailable: {error}", file=sys.stderr)
+        print(f"Herdmux agents unavailable: {error}", file=sys.stderr)
         input("Press Enter to close")
         return 1
     if not agents:

@@ -1,17 +1,15 @@
-> **Part of the [Ataraxy Labs](https://ataraxy-labs.com) stack** — agent-native infrastructure for software development. See also: [sem](https://ataraxy-labs.com/sem) (semantic version control) · [weave](https://ataraxy-labs.com/weave) (entity-level merge driver) · [inspect](https://github.com/Ataraxy-Labs/inspect) (semantic code review).
->
-> Read the manifesto: https://ataraxy-labs.com/#thesis · Essays: https://ataraxy-labs.com/blogs · LLMs: https://ataraxy-labs.com/llms.txt
+> **herdmux** is a fork of [opensessions](https://github.com/Ataraxy-Labs/opensessions) by [Ataraxy Labs](https://ataraxy-labs.com), MIT licensed. See [Fork Additions](#fork-additions) for what changed.
 
-# opensessions
+# herdmux
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Star History](https://img.shields.io/github/stars/Ataraxy-Labs/opensessions?style=social)](https://github.com/Ataraxy-Labs/opensessions)
+[![Star History](https://img.shields.io/github/stars/AfreedHassan/herdmux?style=social)](https://github.com/AfreedHassan/herdmux)
 
 tmux is all you need. make tmux great again :)
 
 <img width="4180" height="2416" alt="amp-img-e686694168e21738-aesthetic" src="https://github.com/user-attachments/assets/2caaee1a-b3f5-4041-aa3c-5b3668aa1912" />
 
-`opensessions` is a sidebar for `tmux` when your sessions, agents, and localhost tabs start multiplying.
+`herdmux` is a sidebar for `tmux` when your sessions, agents, and localhost tabs start multiplying.
 
 It lives inside your existing tmux workflow instead of replacing it: one small pane for session switching, agent state, repo breadcrumbs, and quick jumps back into the right terminal.
 
@@ -30,7 +28,7 @@ Requirements:
 Add this to `~/.tmux.conf`:
 
 ```tmux
-set -g @plugin 'Ataraxy-Labs/opensessions'
+set -g @plugin 'AfreedHassan/herdmux'
 ```
 
 Then reload tmux and install plugins:
@@ -42,19 +40,19 @@ tmux source-file ~/.tmux.conf
 
 Open the sidebar with `prefix o → s`.
 
-TPM clones the repo into `~/.tmux/plugins/opensessions`. On first load, opensessions downloads the matching prebuilt release bundle into `bin/`; that bundle includes `opensessions-sidebar`, `opensessions-server`, and `lazydiff`.
+TPM clones the repo into `~/.tmux/plugins/herdmux`. On first load, herdmux downloads the matching prebuilt release bundle into `bin/`; that bundle includes `herdmux-sidebar`, `herdmux-server`, and `lazydiff`.
 
 If your platform is unsupported or you are developing locally, you can still build from source:
 
 ```bash
-cd ~/.tmux/plugins/opensessions
+cd ~/.tmux/plugins/herdmux
 cargo build --release
 ```
 
 If you want the same setup as a single shell command:
 
 ```bash
-grep -q "Ataraxy-Labs/opensessions" ~/.tmux.conf 2>/dev/null || printf '\nset -g @plugin '\''Ataraxy-Labs/opensessions'\''\n' >> ~/.tmux.conf && tmux source-file ~/.tmux.conf && ~/.tmux/plugins/tpm/bin/install_plugins
+grep -q "AfreedHassan/herdmux" ~/.tmux.conf 2>/dev/null || printf '\nset -g @plugin '\''AfreedHassan/herdmux'\''\n' >> ~/.tmux.conf && tmux source-file ~/.tmux.conf && ~/.tmux/plugins/tpm/bin/install_plugins
 ```
 
 ## Update
@@ -62,12 +60,12 @@ grep -q "Ataraxy-Labs/opensessions" ~/.tmux.conf 2>/dev/null || printf '\nset -g
 Use TPM's built-in update (`prefix + U`) or run:
 
 ```bash
-~/.tmux/plugins/tpm/bin/update_plugins opensessions
+~/.tmux/plugins/tpm/bin/update_plugins herdmux
 ```
 
 No rebuild step:
 
-No local rebuild is needed for normal installs. Reload tmux after TPM updates the plugin; opensessions will download the matching release bundle if `bin/` is missing or incomplete.
+No local rebuild is needed for normal installs. Reload tmux after TPM updates the plugin; herdmux will download the matching release bundle if `bin/` is missing or incomplete.
 
 The plugin automatically restarts the server on update so it picks up the new binary. Toggle the sidebar back on with `prefix o → s` if it was open.
 
@@ -76,10 +74,10 @@ The plugin automatically restarts the server on update so it picks up the new bi
 Run the uninstall script **before** removing the plugin files — it cleans up tmux hooks, keybindings, sidebar panes, and environment variables that would otherwise persist and cause glitching:
 
 ```bash
-sh ~/.tmux/plugins/opensessions/integrations/tmux-plugin/scripts/uninstall.sh
+sh ~/.tmux/plugins/herdmux/integrations/tmux-plugin/scripts/uninstall.sh
 ```
 
-Then remove the `set -g @plugin 'Ataraxy-Labs/opensessions'` line from `~/.tmux.conf` and run `prefix + alt + u` (TPM uninstall).
+Then remove the `set -g @plugin 'AfreedHassan/herdmux'` line from `~/.tmux.conf` and run `prefix + alt + u` (TPM uninstall).
 
 ## Today
 
@@ -93,13 +91,13 @@ Then remove the `set -g @plugin 'Ataraxy-Labs/opensessions'` line from `~/.tmux.
 
 ## Fork Additions
 
-This fork makes agents the primary list and adds remote agents and a picker.
+herdmux makes agents the primary list and adds remote agents and a picker.
 
 - **Agents first.** Each live agent is a row (`<status> <name>`, then its session). Names come from native metadata: Codex `session_index.jsonl`, Claude `/rename` and automatic titles, useful pane titles. Overrides go through `GET /api/agents` and `POST /api/agent-name`.
 - **Real active highlight.** When the sidebar is not focused it always highlights the agent you are in. Hover, arrows and `Tab` only move the highlight while it has focus. Enter or click jumps straight to the agent's pane in one tmux command, flashing only the destination.
 - **Instant width.** A guarded tmux-native `window-layout-changed` hook keeps the sidebar width, with no shell or HTTP round-trip.
-- **Needs input.** Agents waiting on a question, plan approval or permission prompt show a red `?` and `needs input`. The state comes from agent hooks writing the tmux pane option `@opensessions_state`.
-- **Remote agents.** Hosts listed in `~/.config/opensessions/remotes.json` (`{"hosts": ["devbox"]}`) are polled over non-interactive ssh, and only while a local pane runs `ssh <host>`. Each remote tmux agent appears with its location (`devbox · 1:feature`). Jumping selects the local ssh pane and then the right remote window and pane. Unreachable hosts are skipped silently.
+- **Needs input.** Agents waiting on a question, plan approval or permission prompt show a red `?` and `needs input`. The state comes from agent hooks writing the tmux pane option `@herdmux_state`.
+- **Remote agents.** Hosts listed in `~/.config/herdmux/remotes.json` (`{"hosts": ["devbox"]}`) are polled over non-interactive ssh, and only while a local pane runs `ssh <host>`. Each remote tmux agent appears with its location (`devbox · 1:feature`). Jumping selects the local ssh pane and then the right remote window and pane. Unreachable hosts are skipped silently.
 - **Agent picker.** `scripts/agents/agent-pick` is an fzf popup of live agents, with agents needing input first and the rest by recency.
 
 ### Helper setup
@@ -107,7 +105,7 @@ This fork makes agents the primary list and adds remote agents and a picker.
 Run on each machine that runs agents (local and remote hosts):
 
 ```sh
-install -m 755 scripts/agents/opensessions-agent-state ~/.local/bin/
+install -m 755 scripts/agents/herdmux-agent-state ~/.local/bin/
 python3 scripts/agents/install-claude-hooks.py   # backs up ~/.claude/settings.json first
 ```
 
@@ -116,7 +114,7 @@ Claude loads hooks at session start, so restart running agents afterwards. Agent
 Picker binding (`prefix a`) for `~/.tmux.conf`:
 
 ```tmux
-bind a run-shell "tmux display-popup -c '#{client_name}' -E \"$HOME/.tmux/plugins/opensessions/scripts/agents/agent-pick --client '#{client_name}'\""
+bind a run-shell "tmux display-popup -c '#{client_name}' -E \"$HOME/.tmux/plugins/herdmux/scripts/agents/agent-pick --client '#{client_name}'\""
 ```
 
 ## Programmatic API
@@ -151,8 +149,8 @@ Full reference: [docs/reference/programmatic-api.md](./docs/reference/programmat
 Build and run from a local clone:
 
 ```bash
-git clone https://github.com/Ataraxy-Labs/opensessions.git
-cd opensessions
+git clone https://github.com/AfreedHassan/herdmux.git
+cd herdmux
 cargo build --release
 cargo test
 ```
@@ -160,13 +158,13 @@ cargo test
 Start the sidebar manually (outside tmux, for testing):
 
 ```bash
-cargo run -p opensessions-sidebar
+cargo run -p herdmux-sidebar
 ```
 
 Start the server:
 
 ```bash
-cargo run -p opensessions-server
+cargo run -p herdmux-server
 ```
 
 For the full tmux workflow with keybindings, troubleshooting, and configuration options, follow the guide below.
@@ -183,7 +181,7 @@ For the full tmux workflow with keybindings, troubleshooting, and configuration 
 
 ## A Few Concrete Bits
 
-- Session ordering is persisted in `~/.config/opensessions/session-order.json`.
+- Session ordering is persisted in `~/.config/herdmux/session-order.json`.
 - Amp watcher reads `~/.local/share/amp/threads/*.json` and clears unseen state from Amp's `session.json` when a thread becomes seen there.
 - Claude Code watcher reads JSONL transcripts in `~/.claude/projects/`.
 - Codex watcher reads transcript JSONL files in `~/.codex/sessions/` or `$CODEX_HOME/sessions/` and resolves sessions from `turn_context.cwd`.
@@ -206,7 +204,7 @@ For the full tmux workflow with keybindings, troubleshooting, and configuration 
 
 ### Integrations
 
-- `opensessions.tmux` — Root TPM entrypoint for users
+- `herdmux.tmux` — Root TPM entrypoint for users
 - `integrations/tmux-plugin/` — tmux-facing scripts and host integration glue
 - `integrations/amp/` — Amp agent integration
 - `integrations/pi-extension/` — Pi extension integration
@@ -220,7 +218,7 @@ For the full tmux workflow with keybindings, troubleshooting, and configuration 
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=Ataraxy-Labs/opensessions&type=Date)](https://star-history.com/#Ataraxy-Labs/opensessions&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=AfreedHassan/herdmux&type=Date)](https://star-history.com/#AfreedHassan/herdmux&Date)
 
 ## License
 

@@ -1,4 +1,4 @@
-# OpenSessions → Ratatui Migration
+# Herdmux → Ratatui Migration
 
 This directory contains the **complete specification** for porting `apps/tui`
 (Bun + OpenTUI + Solid) to Rust + Ratatui, while keeping `apps/server` and the

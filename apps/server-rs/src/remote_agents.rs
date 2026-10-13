@@ -1,5 +1,5 @@
 //! Best-effort discovery of agents running on SSH hosts listed in
-//! `~/.config/opensessions/remotes.json`. Each host's `~/.ai/sessions`
+//! `~/.config/herdmux/remotes.json`. Each host's `~/.ai/sessions`
 //! bindings are read over a short, non-interactive SSH call; live agents are
 //! attached to the local tmux pane running `ssh <host>`. Unreachable hosts are
 //! skipped silently: no prompts, no retries beyond the next poll.
@@ -10,7 +10,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use opensessions_runtime::protocol::{AgentEvent, AgentLiveness, AgentStatus};
+use herdmux_runtime::protocol::{AgentEvent, AgentLiveness, AgentStatus};
 use serde_json::Value;
 
 pub(crate) const REMOTE_POLL_SECS: u64 = 3;
@@ -105,7 +105,7 @@ try:
             pass
 except Exception:
     pass
-fmt = "#{pane_id}\t#{session_name}\t#{window_index}\t#{window_name}\t#{pane_pid}\t#{&&:#{session_attached},#{&&:#{window_active},#{pane_active}}}\t#{@opensessions_state}"
+fmt = "#{pane_id}\t#{session_name}\t#{window_index}\t#{window_name}\t#{pane_pid}\t#{&&:#{session_attached},#{&&:#{window_active},#{pane_active}}}\t#{@herdmux_state}"
 for line in run("tmux", "list-panes", "-a", "-F", fmt).splitlines():
     parts = line.split("\t")
     if len(parts) != 7 or not parts[4].isdigit():
@@ -117,7 +117,7 @@ for line in run("tmux", "list-panes", "-a", "-F", fmt).splitlines():
     if not tool:
         continue
     record = latest.get((tool, pane), {})
-    # Hook-set pane state (opensessions-agent-state) wins over the binding.
+    # Hook-set pane state (herdmux-agent-state) wins over the binding.
     status = {"needs-input": "needs_input", "running": "working", "done": "done"}.get(hook_state, record.get("status"))
     print(json.dumps({"tool": tool, "pane": pane, "session": session,
                       "window": window_index + ":" + window_name,
@@ -177,7 +177,7 @@ pub(crate) struct RemoteInventory {
 }
 
 pub(crate) fn load_hosts(home: &Path) -> Vec<String> {
-    std::fs::read_to_string(home.join(".config/opensessions/remotes.json"))
+    std::fs::read_to_string(home.join(".config/herdmux/remotes.json"))
         .ok()
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
         .and_then(|config| config.get("hosts").and_then(Value::as_array).cloned())
@@ -224,7 +224,7 @@ fn ssh(host: &str) -> Command {
         "-o",
         "ControlMaster=auto",
         "-o",
-        "ControlPath=/tmp/opensessions-ssh-%C",
+        "ControlPath=/tmp/herdmux-ssh-%C",
         "-o",
         "ControlPersist=120",
         "--",

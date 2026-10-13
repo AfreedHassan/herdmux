@@ -1,13 +1,13 @@
-# Set Up Ghostty Shortcuts for opensessions
+# Set Up Ghostty Shortcuts for herdmux
 
-This guide shows how to add macOS-native keyboard shortcuts in [Ghostty](https://ghostty.org) that control the opensessions sidebar without leaving the keyboard.
+This guide shows how to add macOS-native keyboard shortcuts in [Ghostty](https://ghostty.org) that control the herdmux sidebar without leaving the keyboard.
 
-The opensessions tmux plugin registers a command table (`prefix o → s/t/e/1-9`) for manual use. It also registers direct prefix bindings (`C-s`, `C-t`, `M-1..9`) that terminal emulators can send programmatically. The `e` layout action is currently command-table only. The Ghostty config below uses the direct bindings so each shortcut is a single action.
+The herdmux tmux plugin registers a command table (`prefix o → s/t/e/1-9`) for manual use. It also registers direct prefix bindings (`C-s`, `C-t`, `M-1..9`) that terminal emulators can send programmatically. The `e` layout action is currently command-table only. The Ghostty config below uses the direct bindings so each shortcut is a single action.
 
 ## Prerequisites
 
 - Ghostty 1.3.0 or newer (for key sequences and chained actions)
-- opensessions tmux plugin installed and loaded
+- herdmux tmux plugin installed and loaded
 - tmux prefix set to `Ctrl-A` (`\x01`). If you use `Ctrl-B` (the default), replace `\x01` with `\x02` everywhere below.
 
 ## Shortcuts
@@ -26,7 +26,7 @@ Add this to your Ghostty config (`~/.config/ghostty/config`):
 
 ```
 # Free Cmd+1..9 from Ghostty's default tab shortcuts so they can be
-# used as the second half of the opensessions leader sequence.
+# used as the second half of the herdmux leader sequence.
 keybind = cmd+1=unbind
 keybind = cmd+2=unbind
 keybind = cmd+3=unbind
@@ -37,7 +37,7 @@ keybind = cmd+7=unbind
 keybind = cmd+8=unbind
 keybind = cmd+9=unbind
 
-# opensessions leader sequences: Cmd+O, then s/t/1..9
+# herdmux leader sequences: Cmd+O, then s/t/1..9
 # These send prefix + direct bindings (C-s, C-t, M-1..9) to avoid
 # timing issues with tmux command tables receiving all bytes at once.
 keybind = cmd+o>s=text:\x01\x13

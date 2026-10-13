@@ -116,7 +116,7 @@ fn apply_server_state(&mut self, state: ServerState) {
 
 ## 7. Resize debug log format
 
-Match `/tmp/opensessions-tui-resize.log` exactly (already documented in
+Match `/tmp/herdmux-tui-resize.log` exactly (already documented in
 `09-input-mouse.md`). The TS format:
 
 ```
@@ -124,11 +124,11 @@ Match `/tmp/opensessions-tui-resize.log` exactly (already documented in
 ```
 
 For multi-host debugging, the Rust binary writes to the same path unless
-overridden by `OPENSESSIONS_RESIZE_LOG` env var. Same format.
+overridden by `HERDMUX_RESIZE_LOG` env var. Same format.
 
 ## 8. Agent click log
 
-Lines 377–378: agent clicks log to `/tmp/opensessions-tui-agent-click.log`.
+Lines 377–378: agent clicks log to `/tmp/herdmux-tui-agent-click.log`.
 Same format. Same path.
 
 ## 9. Window id gating for refocus

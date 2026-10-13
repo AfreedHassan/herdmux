@@ -1,12 +1,12 @@
 # Get Started In tmux
 
-This tutorial gets opensessions running as a real tmux sidebar, either through TPM or from a local clone. By the end, you will be able to press `prefix o → s` to open the sidebar, toggle it with `prefix o → t`, spread non-sidebar panes with `prefix o → e`, switch directly with `prefix o → 1` through `prefix o → 9`, and see agent and Git state update live.
+This tutorial gets herdmux running as a real tmux sidebar, either through TPM or from a local clone. By the end, you will be able to press `prefix o → s` to open the sidebar, toggle it with `prefix o → t`, spread non-sidebar panes with `prefix o → e`, switch directly with `prefix o → 1` through `prefix o → 9`, and see agent and Git state update live.
 
 ## Prerequisites
 
 - tmux installed
 - Either TPM already installed or a local checkout of this repository
-- `curl` or `wget` if you install with TPM, so opensessions can download prebuilt release binaries
+- `curl` or `wget` if you install with TPM, so herdmux can download prebuilt release binaries
 - Rust/Cargo only if you are developing locally or your platform is not covered by the release binaries
 
 ## 1. Fast path with TPM
@@ -14,10 +14,10 @@ This tutorial gets opensessions running as a real tmux sidebar, either through T
 If you already use [TPM](https://github.com/tmux-plugins/tpm), run:
 
 ```bash
-grep -q "Ataraxy-Labs/opensessions" ~/.tmux.conf 2>/dev/null || printf '\nset -g @plugin '\''Ataraxy-Labs/opensessions'\''\n' >> ~/.tmux.conf && tmux source-file ~/.tmux.conf && ~/.tmux/plugins/tpm/bin/install_plugins
+grep -q "AfreedHassan/herdmux" ~/.tmux.conf 2>/dev/null || printf '\nset -g @plugin '\''AfreedHassan/herdmux'\''\n' >> ~/.tmux.conf && tmux source-file ~/.tmux.conf && ~/.tmux/plugins/tpm/bin/install_plugins
 ```
 
-Result: TPM clones the GitHub repo for you. The first time tmux loads the plugin, opensessions downloads the matching prebuilt binaries into `~/.tmux/plugins/opensessions/bin/`.
+Result: TPM clones the GitHub repo for you. The first time tmux loads the plugin, herdmux downloads the matching prebuilt binaries into `~/.tmux/plugins/herdmux/bin/`.
 
 If you do not use TPM yet, continue with the local-clone flow below.
 
@@ -31,20 +31,20 @@ cargo build --release
 
 Result: the plugin can run binaries from `target/release/` instead of downloaded release binaries in `bin/`.
 
-## 3. Add opensessions to your tmux config
+## 3. Add herdmux to your tmux config
 
 Open `~/.tmux.conf` and add one of these minimal entries:
 
 If you use TPM:
 
 ```tmux
-set -g @plugin 'Ataraxy-Labs/opensessions'
+set -g @plugin 'AfreedHassan/herdmux'
 ```
 
 If you run from a local clone instead:
 
 ```tmux
-source-file /absolute/path/to/opensessions/opensessions.tmux
+source-file /absolute/path/to/herdmux/herdmux.tmux
 ```
 
 If you added the TPM plugin line manually instead of using the one-line installer above, reload tmux and install plugins with:
@@ -54,10 +54,10 @@ tmux source-file ~/.tmux.conf
 ~/.tmux/plugins/tpm/bin/install_plugins
 ```
 
-All `@opensessions-*` tmux options already have defaults. Configure width from the in-sidebar width slider or `~/.config/opensessions/config.json`; add tmux overrides only for global keys, for example:
+All `@herdmux-*` tmux options already have defaults. Configure width from the in-sidebar width slider or `~/.config/herdmux/config.json`; add tmux overrides only for global keys, for example:
 
 ```tmux
-set -g @opensessions-focus-global-key "C-e"
+set -g @herdmux-focus-global-key "C-e"
 ```
 
 Result: tmux registers direct prefix bindings for sidebar toggle, focus, and session switching.
@@ -85,7 +85,7 @@ Recommended shortcut scheme:
 - `prefix o → e` spreads non-sidebar panes in the current window using `even-horizontal`.
 - `prefix o → 1` through `prefix o → 9` switch directly to the visible session indices.
 
-If you use a terminal or window manager setup where no-prefix bindings are safe, you can also set `@opensessions-focus-global-key` and `@opensessions-index-keys`, but they are left unset by default to avoid conflicts.
+If you use a terminal or window manager setup where no-prefix bindings are safe, you can also set `@herdmux-focus-global-key` and `@herdmux-index-keys`, but they are left unset by default to avoid conflicts.
 
 ## 5. Open the sidebar
 
@@ -121,7 +121,7 @@ Result: the session row should show a live status marker, and the detail panel s
 
 ## Expected Outcome
 
-You now have opensessions wired into tmux as a toggleable sidebar. From here you can move on to:
+You now have herdmux wired into tmux as a toggleable sidebar. From here you can move on to:
 
 - [Configuration reference](../reference/configuration.md)
 - [Features and keybindings reference](../reference/features-and-keybindings.md)

@@ -1,28 +1,28 @@
-# opensessions — AI Agent Instructions
+# herdmux — AI Agent Instructions
 
-You are working on **opensessions**, an agent-agnostic terminal session manager and parallel-agent control plane.
+You are working on **herdmux**, an agent-agnostic terminal session manager and parallel-agent control plane.
 
 ## North Star
 
-**opensessions is becoming the parallel-agent operating system.** It should make many CLI agents, panes, tmux sessions, and git worktrees feel like one coherent control plane instead of a pile of terminals.
+**herdmux is becoming the parallel-agent operating system.** It should make many CLI agents, panes, tmux sessions, and git worktrees feel like one coherent control plane instead of a pile of terminals.
 
 The product direction is:
 
 - **Observe everything**: track tmux sessions, windows, panes, focused pane, layouts, worktrees, git state, agent status, approval state, unread/done state, and session activity as first-class runtime state.
-- **One worktree === one session by default** for opensessions-created work: a new isolated task should get a worktree-backed tmux session with predictable naming, pane layout, agent launch, and cleanup.
+- **One worktree === one session by default** for herdmux-created work: a new isolated task should get a worktree-backed tmux session with predictable naming, pane layout, agent launch, and cleanup.
 - **Existing work stays valid**: users and agents must also be able to launch agents inside existing worktrees, existing sessions, and existing panes when that is the right workflow.
 - **Server as control plane**: the server owns durable state, synchronization, launch jobs, tmux/worktree mappings, and agent-facing APIs. The sidebar is one UI over that control plane, not the control plane itself.
-- **CLI/API for agents**: opensessions should expose commands and eventually an API/MCP surface that lets agents create sessions, launch sibling agents, inspect panes, read useful context, send prompts, wait for state changes, and report handoffs safely.
-- **Tmux-native, not tmux-hostile**: tmux remains the supported substrate. opensessions should repair and manage only what it owns, preserve user layouts by default, and reserve fully managed layouts for explicit modes.
+- **CLI/API for agents**: herdmux should expose commands and eventually an API/MCP surface that lets agents create sessions, launch sibling agents, inspect panes, read useful context, send prompts, wait for state changes, and report handoffs safely.
+- **Tmux-native, not tmux-hostile**: tmux remains the supported substrate. herdmux should repair and manage only what it owns, preserve user layouts by default, and reserve fully managed layouts for explicit modes.
 - **Review and merge are part of the OS**: parallel execution is only useful when the user can compare outputs, detect conflicts, review diffs, merge winning work, and clean up sessions/worktrees without ceremony.
 
 ## Project Structure
 
 ```
-opensessions/
+herdmux/
 ├── apps/
-│   ├── server-rs/          # opensessions-server — Rust WebSocket/HTTP server and control plane
-│   ├── tui-rs/             # opensessions-sidebar — Rust ratatui sidebar client
+│   ├── server-rs/          # herdmux-server — Rust WebSocket/HTTP server and control plane
+│   ├── tui-rs/             # herdmux-sidebar — Rust ratatui sidebar client
 │   └── tui/scripts/        # tmux sidebar launcher and sessionizer shell scripts
 ├── integrations/
 │   ├── tmux-plugin/        # tmux-facing scripts and host integration glue
@@ -32,7 +32,7 @@ opensessions/
 │   ├── runtime-rs/         # Shared Rust runtime: config, protocol, tracker, tmux provider, watchers
 │   └── sidebar-core-rs/    # Sidebar app state, input handling, rendering, layout, hit testing
 ├── CONTRACTS.md            # Supported agent event and runtime integration contracts
-├── opensessions.tmux       # Root TPM entrypoint
+├── herdmux.tmux       # Root TPM entrypoint
 ├── Cargo.toml              # Rust workspace root
 └── package.json            # Release version used by npm/TPM download helpers
 ```
@@ -44,7 +44,7 @@ opensessions/
 3. **Built-in agent watchers**: the Rust server scans Amp, Claude Code, Codex, OpenCode, Pi, and Droid state directly and converts it into `AgentEvent`s.
 4. **External agent events via HTTP**: third-party agents should POST to `/api/agent-event` or use the metadata endpoints. TypeScript plugin loading is not a supported runtime path right now.
 5. **Tmux is the supported mux**: abstractions remain mux-shaped, but tmux is the only documented supported provider. Older zellij helper code is not part of the support promise.
-6. **Release binaries, not local builds**: TPM users get prebuilt `opensessions-sidebar`, `opensessions-server`, and `lazydiff` binaries in `bin/`. `cargo build --release` is for development or unsupported platforms.
+6. **Release binaries, not local builds**: TPM users get prebuilt `herdmux-sidebar`, `herdmux-server`, and `lazydiff` binaries in `bin/`. `cargo build --release` is for development or unsupported platforms.
 
 ## Contracts
 
@@ -85,7 +85,7 @@ The Rust trait lives in `packages/runtime-rs/src/mux.rs`. Keep methods synchrono
 - **TUI**: Ratatui 0.30 + Crossterm 0.29
 - **Async/networking**: Tokio + tokio-websockets
 - **Tests**: `cargo test`, with tmux E2E coverage in `apps/tui-rs/tests/tmux_e2e.rs`
-- **Release**: GitHub Actions builds `opensessions-sidebar`, `opensessions-server`, and bundled `lazydiff` for release artifacts
+- **Release**: GitHub Actions builds `herdmux-sidebar`, `herdmux-server`, and bundled `lazydiff` for release artifacts
 
 ## Development Guidelines
 
@@ -100,11 +100,11 @@ The Rust trait lives in `packages/runtime-rs/src/mux.rs`. Keep methods synchrono
 
 ```bash
 cargo test --workspace                         # Run Rust tests
-cargo test -p opensessions-sidebar-core        # Focused sidebar core tests
-cargo test -p opensessions-sidebar --test tmux_e2e -- --nocapture
+cargo test -p herdmux-sidebar-core        # Focused sidebar core tests
+cargo test -p herdmux-sidebar --test tmux_e2e -- --nocapture
 cargo build --release                          # Build local dev binaries
-cargo run -p opensessions-server               # Start server directly
-cargo run -p opensessions-sidebar              # Start sidebar directly
+cargo run -p herdmux-server               # Start server directly
+cargo run -p herdmux-sidebar              # Start sidebar directly
 bun test scripts/postinstall.test.ts           # Postinstall helper tests
 ```
 

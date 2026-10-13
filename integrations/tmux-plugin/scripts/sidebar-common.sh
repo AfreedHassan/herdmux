@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-SIDEBAR_PANE_TITLE="opensessions-sidebar"
+SIDEBAR_PANE_TITLE="herdmux-sidebar"
 STASH_SESSION="_os_stash"
 PANE_FIELD_SEP='|'
 

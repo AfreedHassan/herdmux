@@ -48,7 +48,7 @@ async fn port_open(host: &str, port: u16) -> bool {
 }
 
 fn spawn_server() -> std::io::Result<()> {
-    let bun = std::env::var("OPENSESSIONS_BUN").unwrap_or_else(|_| "bun".into());
+    let bun = std::env::var("HERDMUX_BUN").unwrap_or_else(|_| "bun".into());
     let server_path = resolve_server_entry()?;
     use std::process::{Command, Stdio};
     let _child = Command::new(&bun)
@@ -65,14 +65,14 @@ fn spawn_server() -> std::io::Result<()> {
 }
 
 fn resolve_server_entry() -> std::io::Result<PathBuf> {
-    if let Ok(d) = std::env::var("OPENSESSIONS_DIR") {
+    if let Ok(d) = std::env::var("HERDMUX_DIR") {
         let p = PathBuf::from(d).join("apps/server/src/main.ts");
         if p.exists() { return Ok(p); }
     }
     // When binary is installed, the server entry sits next to or via PATH.
     // For now, fall back to a packaged path or fail.
     Err(std::io::Error::new(std::io::ErrorKind::NotFound,
-        "OPENSESSIONS_DIR not set; cannot find server entry"))
+        "HERDMUX_DIR not set; cannot find server entry"))
 }
 ```
 
@@ -82,7 +82,7 @@ The Rust binary still depends on **bun being installed** to launch the
 server. Two paths:
 
 1. **Status quo**: ship the server as TS, expect users to install bun.
-   `npm install opensessions` postinstall ensures bun via `bunx` if absent.
+   `npm install herdmux` postinstall ensures bun via `bunx` if absent.
 2. **Compile server too**: use `bun build --compile` to produce a single-file
    server binary, ship both binaries side-by-side.
 

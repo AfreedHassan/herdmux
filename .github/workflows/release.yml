@@ -25,19 +25,19 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact: opensessions-sidebar-x86_64-unknown-linux-gnu.tar.gz
+            artifact: herdmux-sidebar-x86_64-unknown-linux-gnu.tar.gz
             lazydiff_flags: ""
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
-            artifact: opensessions-sidebar-aarch64-unknown-linux-gnu.tar.gz
+            artifact: herdmux-sidebar-aarch64-unknown-linux-gnu.tar.gz
             lazydiff_flags: ""
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact: opensessions-sidebar-aarch64-apple-darwin.tar.gz
+            artifact: herdmux-sidebar-aarch64-apple-darwin.tar.gz
             lazydiff_flags: ""
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact: opensessions-sidebar-x86_64-apple-darwin.tar.gz
+            artifact: herdmux-sidebar-x86_64-apple-darwin.tar.gz
             lazydiff_flags: ""
 
     steps:
@@ -53,10 +53,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: opensessions-${{ matrix.target }}
+          shared-key: herdmux-${{ matrix.target }}
 
-      - name: Build opensessions binaries
-        run: cargo build --release --target ${{ matrix.target }} -p opensessions-sidebar -p opensessions-server
+      - name: Build herdmux binaries
+        run: cargo build --release --target ${{ matrix.target }} -p herdmux-sidebar -p herdmux-server
 
       - name: Checkout lazydiff
         uses: actions/checkout@v4
@@ -89,12 +89,12 @@ jobs:
           mkdir -p package dist
           exe=""
 
-          cp "target/${{ matrix.target }}/release/opensessions-sidebar${exe}" "package/opensessions-sidebar${exe}"
-          cp "target/${{ matrix.target }}/release/opensessions-server${exe}" "package/opensessions-server${exe}"
+          cp "target/${{ matrix.target }}/release/herdmux-sidebar${exe}" "package/herdmux-sidebar${exe}"
+          cp "target/${{ matrix.target }}/release/herdmux-server${exe}" "package/herdmux-server${exe}"
           cp "lazydiff-src/target/${{ matrix.target }}/release/lazydiff${exe}" "package/lazydiff${exe}"
 
-          "./package/opensessions-sidebar${exe}" --help >/dev/null
-          test -x "./package/opensessions-server${exe}"
+          "./package/herdmux-sidebar${exe}" --help >/dev/null
+          test -x "./package/herdmux-server${exe}"
           "./package/lazydiff${exe}" --version
           "./package/lazydiff${exe}" --help >/dev/null
 

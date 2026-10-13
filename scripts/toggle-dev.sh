@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Toggle opensessions between dev (local workspace) and prod (TPM) in tmux.conf
+# Toggle herdmux between dev (local workspace) and prod (TPM) in tmux.conf
 # Usage: ./scripts/toggle-dev.sh [dev|prod]
 #   No argument: toggle current mode
 #   dev:  switch to local workspace
@@ -7,12 +7,12 @@
 #
 # Prerequisites:
 #   Your tmux.conf must have both lines (one commented out):
-#     set -g @plugin 'Ataraxy-Labs/opensessions'
-#     # run '<path-to-workspace>/opensessions.tmux'
+#     set -g @plugin 'AfreedHassan/herdmux'
+#     # run '<path-to-workspace>/herdmux.tmux'
 
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEV_LINE="run '${CURRENT_DIR}/opensessions.tmux'"
-TPM_LINE="set -g @plugin 'Ataraxy-Labs/opensessions'"
+DEV_LINE="run '${CURRENT_DIR}/herdmux.tmux'"
+TPM_LINE="set -g @plugin 'AfreedHassan/herdmux'"
 
 CONF="${XDG_CONFIG_HOME:-$HOME/.config}/tmux/tmux.conf"
 [ ! -f "$CONF" ] && CONF="$HOME/.tmux.conf"
@@ -25,10 +25,10 @@ fi
 # Detect current mode
 if grep -q "^${TPM_LINE}" "$CONF"; then
   CURRENT="prod"
-elif grep -q "^run '.*opensessions.tmux'" "$CONF"; then
+elif grep -q "^run '.*herdmux.tmux'" "$CONF"; then
   CURRENT="dev"
 else
-  echo "ERROR: couldn't detect opensessions config in $CONF" >&2
+  echo "ERROR: couldn't detect herdmux config in $CONF" >&2
   exit 1
 fi
 
@@ -48,7 +48,7 @@ if [ "$TARGET" = "dev" ]; then
   sed -i '' "s|^# *${DEV_LINE}|${DEV_LINE}|" "$CONF"
   echo "✓ Switched to DEV (${CURRENT_DIR})"
 else
-  sed -i '' "s|^run '.*opensessions.tmux'|# ${DEV_LINE}|" "$CONF"
+  sed -i '' "s|^run '.*herdmux.tmux'|# ${DEV_LINE}|" "$CONF"
   sed -i '' "s|^# *${TPM_LINE}|${TPM_LINE}|" "$CONF"
   echo "✓ Switched to PROD (TPM)"
 fi

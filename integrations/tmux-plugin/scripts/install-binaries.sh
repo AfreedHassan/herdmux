@@ -3,16 +3,16 @@
 set -eu
 
 PLUGIN_DIR="${1:-$(cd "$(dirname "$0")/../../.." && pwd)}"
-VERSION="${OPENSESSIONS_RELEASE_VERSION:-$(grep -o '"version": *"[^"]*"' "$PLUGIN_DIR/package.json" 2>/dev/null | head -1 | cut -d'"' -f4)}"
-RELEASE_BASE="${OPENSESSIONS_RELEASE_BASE:-https://github.com/ataraxy-labs/opensessions/releases/download}"
+VERSION="${HERDMUX_RELEASE_VERSION:-$(grep -o '"version": *"[^"]*"' "$PLUGIN_DIR/package.json" 2>/dev/null | head -1 | cut -d'"' -f4)}"
+RELEASE_BASE="${HERDMUX_RELEASE_BASE:-https://github.com/AfreedHassan/herdmux/releases/download}"
 BIN_DIR="$PLUGIN_DIR/bin"
 
-if [ "${OPENSESSIONS_SKIP_BINARY_DOWNLOAD:-}" = "1" ]; then
+if [ "${HERDMUX_SKIP_BINARY_DOWNLOAD:-}" = "1" ]; then
   exit 0
 fi
 
 if [ -z "$VERSION" ]; then
-  echo "opensessions: could not read package version from $PLUGIN_DIR/package.json" >&2
+  echo "herdmux: could not read package version from $PLUGIN_DIR/package.json" >&2
   exit 1
 fi
 
@@ -25,7 +25,7 @@ target_triple() {
     Linux:x86_64|Linux:amd64) printf '%s\n' "x86_64-unknown-linux-gnu" ;;
     Linux:aarch64|Linux:arm64) printf '%s\n' "aarch64-unknown-linux-gnu" ;;
     *)
-      echo "opensessions: unsupported platform for prebuilt binary: $os/$arch" >&2
+      echo "herdmux: unsupported platform for prebuilt binary: $os/$arch" >&2
       return 1
       ;;
   esac
@@ -39,34 +39,34 @@ download() {
   elif command -v wget >/dev/null 2>&1; then
     wget -qO "$dest" "$url"
   else
-    echo "opensessions: curl or wget is required to download prebuilt binaries" >&2
+    echo "herdmux: curl or wget is required to download prebuilt binaries" >&2
     return 1
   fi
 }
 
 TRIPLE="$(target_triple)"
-ARTIFACT="opensessions-sidebar-${TRIPLE}.tar.gz"
+ARTIFACT="herdmux-sidebar-${TRIPLE}.tar.gz"
 URL="$RELEASE_BASE/v$VERSION/$ARTIFACT"
-SIDEBAR_BIN="$BIN_DIR/opensessions-sidebar"
-SERVER_BIN="$BIN_DIR/opensessions-server"
+SIDEBAR_BIN="$BIN_DIR/herdmux-sidebar"
+SERVER_BIN="$BIN_DIR/herdmux-server"
 LAZYDIFF_BIN="$BIN_DIR/lazydiff"
-VERSION_FILE="$BIN_DIR/.opensessions-version"
+VERSION_FILE="$BIN_DIR/.herdmux-version"
 
 if [ -x "$SIDEBAR_BIN" ] && [ -x "$SERVER_BIN" ] && [ -x "$LAZYDIFF_BIN" ] && [ "$(cat "$VERSION_FILE" 2>/dev/null || true)" = "$VERSION" ]; then
   exit 0
 fi
 
 mkdir -p "$BIN_DIR"
-TMP="$BIN_DIR/.opensessions-download.$$.$ARTIFACT"
+TMP="$BIN_DIR/.herdmux-download.$$.$ARTIFACT"
 cleanup() {
   rm -f "$TMP"
 }
 trap cleanup EXIT INT TERM
 
-echo "opensessions: downloading prebuilt binaries for $TRIPLE (v$VERSION)" >&2
+echo "herdmux: downloading prebuilt binaries for $TRIPLE (v$VERSION)" >&2
 if ! download "$URL" "$TMP"; then
-  echo "opensessions: failed to download $URL" >&2
-  echo "opensessions: install from a released tag, or build locally with: cargo build --release" >&2
+  echo "herdmux: failed to download $URL" >&2
+  echo "herdmux: install from a released tag, or build locally with: cargo build --release" >&2
   exit 1
 fi
 

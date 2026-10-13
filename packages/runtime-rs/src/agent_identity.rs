@@ -130,7 +130,7 @@ pub(crate) fn useful_pane_title(title: &str, agent: &str) -> Option<String> {
     if meaningful == agent
         || matches!(
             meaningful.as_str(),
-            "claude" | "claude code" | "codex" | "node" | "zsh" | "bash" | "opensessions-sidebar"
+            "claude" | "claude code" | "codex" | "node" | "zsh" | "bash" | "herdmux-sidebar"
         )
     {
         return None;

@@ -8,15 +8,15 @@ use crossterm::event::{
 use crossterm::execute;
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use futures_util::{SinkExt, StreamExt};
-use opensessions_sidebar::app::{App, LaunchTarget};
-use opensessions_sidebar::cli::{Args, resolve_endpoint_from_env};
-use opensessions_sidebar::client::{
+use herdmux_sidebar::app::{App, LaunchTarget};
+use herdmux_sidebar::cli::{Args, resolve_endpoint_from_env};
+use herdmux_sidebar::client::{
     connect_ws, decode_server_message, encode_client_command, fire_quit_http, validate_hello,
 };
-use opensessions_sidebar::generated::protocol::{ClientCommand, ServerMessage};
-use opensessions_sidebar::input::{UiKey, UiMouse, apply_ui_key, apply_ui_mouse};
-use opensessions_sidebar::renderer::render_app;
-use opensessions_sidebar::runtime_context::{
+use herdmux_sidebar::generated::protocol::{ClientCommand, ServerMessage};
+use herdmux_sidebar::input::{UiKey, UiMouse, apply_ui_key, apply_ui_mouse};
+use herdmux_sidebar::renderer::render_app;
+use herdmux_sidebar::runtime_context::{
     PaneIdentity as RuntimePaneIdentity, pane_identity_resolve, refocus_plan,
 };
 use ratatui::Terminal;
@@ -37,15 +37,15 @@ struct PendingSidebarWidthCommand {
     due_at: std::time::Instant,
 }
 
-/// Append a single debug line. Temporarily defaults to `/tmp/opensessions-debug.log`
+/// Append a single debug line. Temporarily defaults to `/tmp/herdmux-debug.log`
 /// so live focus/agent-state issues can be diagnosed without extra env setup;
-/// `OPENSESSIONS_DEBUG_LOG` still overrides the path when set.
+/// `HERDMUX_DEBUG_LOG` still overrides the path when set.
 fn debug_log(line: impl AsRef<str>) {
     use std::io::Write;
     use std::time::{SystemTime, UNIX_EPOCH};
-    let path = std::env::var("OPENSESSIONS_DEBUG_LOG")
+    let path = std::env::var("HERDMUX_DEBUG_LOG")
         .ok()
-        .unwrap_or_else(|| "/tmp/opensessions-debug.log".to_string());
+        .unwrap_or_else(|| "/tmp/herdmux-debug.log".to_string());
     if path.is_empty() {
         return;
     }
@@ -165,8 +165,8 @@ async fn main() -> Result<()> {
                                 session.agents.iter().any(|agent| {
                                     matches!(
                                         agent.status,
-                                        opensessions_sidebar::generated::protocol::AgentStatus::Running
-                                            | opensessions_sidebar::generated::protocol::AgentStatus::ToolRunning
+                                        herdmux_sidebar::generated::protocol::AgentStatus::Running
+                                            | herdmux_sidebar::generated::protocol::AgentStatus::ToolRunning
                                     )
                                 })
                                     || session
@@ -175,7 +175,7 @@ async fn main() -> Result<()> {
                                         .map(|state| {
                                             matches!(
                                                 state.status,
-                                                opensessions_sidebar::generated::protocol::AgentStatus::Running
+                                                herdmux_sidebar::generated::protocol::AgentStatus::Running
                                             )
                                         })
                                         .unwrap_or(false)
@@ -639,7 +639,7 @@ fn lazydiffs_command(branch: &str) -> String {
 fn resolve_lazydiff_binary() -> String {
     resolve_lazydiff_binary_from(
         std::env::current_exe().ok().as_deref(),
-        std::env::var("OPENSESSIONS_LAZYDIFF").ok().as_deref(),
+        std::env::var("HERDMUX_LAZYDIFF").ok().as_deref(),
         Path::exists,
     )
 }
@@ -683,7 +683,7 @@ mod tests {
 
     #[test]
     fn lazydiff_resolution_prefers_explicit_env_override() {
-        let current = Path::new("/opt/opensessions/bin/opensessions-sidebar");
+        let current = Path::new("/opt/herdmux/bin/herdmux-sidebar");
 
         assert_eq!(
             resolve_lazydiff_binary_from(Some(current), Some("/custom/lazydiff"), |_| true),
@@ -693,8 +693,8 @@ mod tests {
 
     #[test]
     fn lazydiff_resolution_prefers_bundled_sibling_binary() {
-        let current = Path::new("/opt/opensessions/bin/opensessions-sidebar");
-        let expected = PathBuf::from("/opt/opensessions/bin").join(lazydiff_binary_name());
+        let current = Path::new("/opt/herdmux/bin/herdmux-sidebar");
+        let expected = PathBuf::from("/opt/herdmux/bin").join(lazydiff_binary_name());
 
         assert_eq!(
             resolve_lazydiff_binary_from(Some(current), None, |path| path == expected),
@@ -704,7 +704,7 @@ mod tests {
 
     #[test]
     fn lazydiff_resolution_falls_back_to_path_lookup() {
-        let current = Path::new("/opt/opensessions/bin/opensessions-sidebar");
+        let current = Path::new("/opt/herdmux/bin/herdmux-sidebar");
 
         assert_eq!(
             resolve_lazydiff_binary_from(Some(current), None, |_| false),

@@ -9,7 +9,7 @@ Sessions                          6
    03  learning
        main
 
-▌  04  opensessions
+▌  04  herdmux
        devpulse
 
 ›  05  plane-pdf-word-formatting

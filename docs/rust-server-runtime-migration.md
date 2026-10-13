@@ -26,13 +26,13 @@ The TypeScript server/runtime remains the behavioral oracle while the Rust imple
 5. **Mux Contracts**: Define synchronous Rust mux traits and command-runner fakes, then port tmux and zellij behavior one method at a time.
 6. **Server Shell**: Add Rust WebSocket/HTTP server that sends `hello`, computes read-only state, and accepts no-risk commands.
 7. **Command Parity**: Port client command handlers one by one: focus, switch, theme/filter persistence, ordering, hide/show, metadata, pane identify, agent pane focus/kill, width reports, quit.
-8. **Bootstrap/Distribution**: Ship `opensessions-server` beside `opensessions-sidebar`, opt in via launcher/env flag, then dogfood before making Rust default.
+8. **Bootstrap/Distribution**: Ship `herdmux-server` beside `herdmux-sidebar`, opt in via launcher/env flag, then dogfood before making Rust default.
 
 ## Gates
 
 - Every Rust behavior starts as a failing `cargo test`.
 - Wire examples from `packages/runtime/src/shared.ts` must deserialize in Rust.
-- Config tests must preserve `~/.config/opensessions/config.json` merge behavior.
+- Config tests must preserve `~/.config/herdmux/config.json` merge behavior.
 - Watcher/provider tests must prove observable status events, not implementation details.
 - Release binary size and dependency duplication are checked before defaulting to Rust.
 

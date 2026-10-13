@@ -2,7 +2,7 @@
 
 This file maps the product contract in [`sidebar-behavior.md`](./sidebar-behavior.md) to the real tmux E2E tests that protect it.
 
-The intended test surface is product E2E only: each test creates real fake git repositories/worktrees, a real isolated tmux server/socket, a real opensessions server, real sidebar panes, and PTY-backed attached tmux clients.
+The intended test surface is product E2E only: each test creates real fake git repositories/worktrees, a real isolated tmux server/socket, a real herdmux server, real sidebar panes, and PTY-backed attached tmux clients.
 
 ## Covered by `apps/tui-rs/tests/tmux_e2e.rs`
 
@@ -13,7 +13,7 @@ The intended test surface is product E2E only: each test creates real fake git r
 | `q` in a connected sidebar shuts down the server and every connected sidebar client. | `tmux_sidebar_quit_closes_the_server_and_every_sidebar_client` |
 | Two attached tmux clients can keep independent active rows instead of a global server focus row overriding every sidebar. | `tmux_sidebar_multiple_clients_keep_independent_active_rows` |
 | Two different tmux sockets have isolated ports, servers, width state, and sidebar state. | `tmux_sidebar_state_is_isolated_per_tmux_socket` |
-| `q` in a normal/main tmux pane does not quit opensessions. | `tmux_sidebar_q_in_main_pane_does_not_quit_opensessions` |
+| `q` in a normal/main tmux pane does not quit herdmux. | `tmux_sidebar_q_in_main_pane_does_not_quit_herdmux` |
 | Pane topology repair must not let tmux permanently donate freed space to the sidebar. | `tmux_sidebar_pane_exit_does_not_steal_sidebar_width` |
 | Resizing and immediately switching sessions preserves the latest drag-owned width through handoff. | `tmux_sidebar_resize_immediately_before_switch_survives_handoff` |
 | A single resize immediately followed by a switch is adopted from the source window even if no prior drag report established an owner. | `tmux_sidebar_single_resize_immediately_before_switch_is_adopted` |

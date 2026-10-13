@@ -7,8 +7,8 @@ target
 .agents/skills/grill-me/
 
 # Locally built binaries installed by the plugin
-bin/opensessions-server
-bin/opensessions-sidebar
+bin/herdmux-server
+bin/herdmux-sidebar
 bin/lazydiff
-bin/.opensessions-version
+bin/.herdmux-version
 bin/.*.new

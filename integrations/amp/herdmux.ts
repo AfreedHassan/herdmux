@@ -1,13 +1,13 @@
 /**
- * opensessions plugin for Amp
+ * herdmux plugin for Amp
  *
- * Reports agent status to the opensessions server via HTTP. When this plugin
- * is installed and the server is running, opensessions will skip its cloud
+ * Reports agent status to the herdmux server via HTTP. When this plugin
+ * is installed and the server is running, herdmux will skip its cloud
  * API / DTW WebSocket polling for the active thread and rely entirely on the
  * events emitted here.
  *
  * Install:
- *   Copy (or symlink) this file to ~/.config/amp/plugins/opensessions.ts
+ *   Copy (or symlink) this file to ~/.config/amp/plugins/herdmux.ts
  *
  * Requires a recent Amp build that exposes `ctx.thread.id` on session.start.
  *
@@ -20,7 +20,7 @@
  *
  * Session identity:
  *   1. `tmux display-message -p '#S'` — works when Amp is launched inside a
- *      tmux pane managed by opensessions.
+ *      tmux pane managed by herdmux.
  *   2. `process.cwd()` — server resolves to a session via its dir→session map.
  *   Both are sent in every payload; the server picks whichever resolves.
  */
@@ -31,7 +31,7 @@ import { appendFileSync, readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
-const PLUGIN_LOG_PATH = "/tmp/opensessions-plugin.log";
+const PLUGIN_LOG_PATH = "/tmp/herdmux-plugin.log";
 function plog(msg: string): void {
   try { appendFileSync(PLUGIN_LOG_PATH, `[${new Date().toISOString()}] ${msg}\n`); } catch {}
 }
@@ -116,7 +116,7 @@ async function fetchThreadTitle(threadId: string): Promise<string | null> {
 }
 
 /**
- * Port resolution — matches the tmux-scoped opensessions server namespace.
+ * Port resolution — matches the tmux-scoped herdmux server namespace.
  * Rust servers use 22000+server_key.
  */
 function hashServerKey(input: string): number {
@@ -133,12 +133,12 @@ function resolveServerUrls(): string[] {
     if (url && !urls.includes(url)) urls.push(url);
   };
 
-  add(process.env.OPENSESSIONS_URL);
+  add(process.env.HERDMUX_URL);
 
-  const explicit = Number.parseInt(process.env.OPENSESSIONS_PORT ?? "", 10);
+  const explicit = Number.parseInt(process.env.HERDMUX_PORT ?? "", 10);
   if (Number.isFinite(explicit) && explicit > 0) add(`http://127.0.0.1:${explicit}`);
 
-  const explicitKey = process.env.OPENSESSIONS_SERVER_KEY?.trim();
+  const explicitKey = process.env.HERDMUX_SERVER_KEY?.trim();
   if (explicitKey) {
     const key = Number.parseInt(explicitKey, 10);
     if (Number.isFinite(key)) {
@@ -155,12 +155,12 @@ function resolveServerUrls(): string[] {
     }
   }
 
-  // Broadcast agent telemetry to every opensessions server currently known on
+  // Broadcast agent telemetry to every herdmux server currently known on
   // this machine. Each server maps projectDir/tmuxSession against its own tmux
   // sessions and no-ops events for folders it does not own.
   try {
     for (const entry of readdirSync("/tmp")) {
-      const match = /^opensessions\.(\d+)\.pid$/.exec(entry);
+      const match = /^herdmux\.(\d+)\.pid$/.exec(entry);
       if (!match) continue;
       if (!pidFileIsAlive(join("/tmp", entry))) continue;
       const key = Number.parseInt(match[1], 10);
@@ -186,7 +186,7 @@ function pidFileIsAlive(path: string): boolean {
 
 function serverUrls(): string[] {
   // Resolve at send time, not plugin-load time. Amp plugin processes can live
-  // across opensessions restarts and tmux env changes; stale endpoints during
+  // across herdmux restarts and tmux env changes; stale endpoints during
   // a restart should not strand events until Amp itself is restarted.
   return resolveServerUrls();
 }

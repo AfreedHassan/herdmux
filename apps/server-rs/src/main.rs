@@ -1,5 +1,5 @@
-use opensessions_runtime::shared::resolve_server_settings;
-use opensessions_server::{ServerConfig, default_state_source_from_env, start_server};
+use herdmux_runtime::shared::resolve_server_settings;
+use herdmux_server::{ServerConfig, default_state_source_from_env, start_server};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

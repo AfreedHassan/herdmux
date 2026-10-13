@@ -298,6 +298,58 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "herdmux-runtime"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "herdmux-server"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "futures-util",
+ "herdmux-runtime",
+ "herdmux-sidebar-core",
+ "http",
+ "serde_json",
+ "sha1_smol",
+ "tokio",
+ "tokio-websockets",
+]
+
+[[package]]
+name = "herdmux-sidebar"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "crossterm",
+ "futures-util",
+ "herdmux-sidebar-core",
+ "http",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tokio-websockets",
+ "unicode-width",
+]
+
+[[package]]
+name = "herdmux-sidebar-core"
+version = "0.1.0"
+dependencies = [
+ "herdmux-runtime",
+ "ratatui",
+ "serde",
+ "unicode-width",
+]
+
+[[package]]
 name = "http"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -449,58 +501,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c7398b9c8b70908f6371f47ed36737907c87c52af34c268fed0bf0ceb92ead9"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "opensessions-runtime"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "opensessions-server"
-version = "0.1.0"
-dependencies = [
- "base64",
- "futures-util",
- "http",
- "opensessions-runtime",
- "opensessions-sidebar-core",
- "serde_json",
- "sha1_smol",
- "tokio",
- "tokio-websockets",
-]
-
-[[package]]
-name = "opensessions-sidebar"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "crossterm",
- "futures-util",
- "http",
- "opensessions-sidebar-core",
- "ratatui",
- "serde",
- "serde_json",
- "tokio",
- "tokio-util",
- "tokio-websockets",
- "unicode-width",
-]
-
-[[package]]
-name = "opensessions-sidebar-core"
-version = "0.1.0"
-dependencies = [
- "opensessions-runtime",
- "ratatui",
- "serde",
- "unicode-width",
 ]
 
 [[package]]

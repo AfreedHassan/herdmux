@@ -5,7 +5,7 @@ use crate::runtime_config::{DEFAULT_SERVER_PORT, hash_server_key, resolve_server
 const DEFAULT_SERVER_HOST: &str = "127.0.0.1";
 
 #[derive(Debug, Clone, Parser)]
-#[command(name = "opensessions-sidebar")]
+#[command(name = "herdmux-sidebar")]
 pub struct Args {
     #[arg(long, default_value = "127.0.0.1")]
     pub server_host: String,
@@ -34,9 +34,9 @@ where
     F: Fn(&str) -> Option<String>,
 {
     let server_key = resolve_server_key(&env);
-    let explicit_port = env("OPENSESSIONS_PORT");
+    let explicit_port = env("HERDMUX_PORT");
     let server_port = resolve_server_port(server_key, explicit_port.as_deref());
-    let server_host = env("OPENSESSIONS_HOST")
+    let server_host = env("HERDMUX_HOST")
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| DEFAULT_SERVER_HOST.to_string());
@@ -51,7 +51,7 @@ fn resolve_server_key<F>(env: &F) -> Option<u16>
 where
     F: Fn(&str) -> Option<String>,
 {
-    if let Some(explicit) = env("OPENSESSIONS_SERVER_KEY")
+    if let Some(explicit) = env("HERDMUX_SERVER_KEY")
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         && let Ok(parsed) = explicit.parse::<u16>()

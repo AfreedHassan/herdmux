@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# opensessions sessionizer — fuzzy directory picker for new tmux sessions
+# herdmux sessionizer — fuzzy directory picker for new tmux sessions
 # Requires: fzf, find
 # Supports colon-separated paths in SESSIONIZER_DIR (e.g. "$HOME/Code:$HOME/.config")
 # Search depth is configurable via SESSIONIZER_MAXDEPTH (default: 3)

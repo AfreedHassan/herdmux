@@ -181,7 +181,7 @@ Enable on startup, restore on exit. Already handled by
 
 ## Logging
 
-The TS code writes resize debug to `/tmp/opensessions-tui-resize.log`. Keep
+The TS code writes resize debug to `/tmp/herdmux-tui-resize.log`. Keep
 the same format for diffability:
 
 ```rust
@@ -193,7 +193,7 @@ fn log_resize(&self, kind: &str, fields: &[(&str, String)]) {
         .collect::<Vec<_>>().join(",");
     let line = format!("[{ts}] [pid:{}] {kind} {{{extra}}}\n", std::process::id());
     if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true).append(true).open("/tmp/opensessions-tui-resize.log") {
+        .create(true).append(true).open("/tmp/herdmux-tui-resize.log") {
         let _ = f.write_all(line.as_bytes());
     }
 }

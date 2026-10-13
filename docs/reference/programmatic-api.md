@@ -1,6 +1,6 @@
 # Programmatic Metadata API
 
-opensessions exposes HTTP endpoints that let agents, scripts, and CI pipelines push custom metadata to the TUI sidebar. This is the programmatic surface — your tools can self-report status, progress, and structured logs without opensessions needing a dedicated watcher.
+herdmux exposes HTTP endpoints that let agents, scripts, and CI pipelines push custom metadata to the TUI sidebar. This is the programmatic surface — your tools can self-report status, progress, and structured logs without herdmux needing a dedicated watcher.
 
 ## Endpoints
 

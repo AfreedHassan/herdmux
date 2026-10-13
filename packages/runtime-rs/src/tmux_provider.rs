@@ -110,7 +110,7 @@ pub struct PaneInfo {
     pub height: u16,
     pub left: u16,
     pub right: u16,
-    /// `@opensessions_state` set by agent hooks (`opensessions-agent-state`).
+    /// `@herdmux_state` set by agent hooks (`herdmux-agent-state`).
     pub agent_state: String,
 }
 
@@ -200,7 +200,7 @@ impl TmuxClient {
         let Some(sidebar_pane) = self
             .list_panes(PaneScope::Window(&window_id))
             .into_iter()
-            .find(|pane| pane.title == "opensessions-sidebar")
+            .find(|pane| pane.title == "herdmux-sidebar")
             .map(|pane| pane.id)
         else {
             return;
@@ -310,7 +310,7 @@ impl TmuxClient {
     pub fn set_remain_on_exit_for_sidebar_windows(&self, enabled: bool) {
         let mut seen_windows = HashSet::new();
         for pane in self.list_panes(PaneScope::All) {
-            if pane.title == "opensessions-sidebar" && seen_windows.insert(pane.window_id.clone()) {
+            if pane.title == "herdmux-sidebar" && seen_windows.insert(pane.window_id.clone()) {
                 self.set_window_remain_on_exit(&pane.window_id, enabled);
             }
         }
@@ -429,7 +429,7 @@ impl TmuxClient {
             "list-panes",
             "-a",
             "-f",
-            "#{&&:#{window_active},#{!=:#{pane_title},opensessions-sidebar}}",
+            "#{&&:#{window_active},#{!=:#{pane_title},herdmux-sidebar}}",
             "-F",
             "#{session_name}\t#{pane_current_path}",
         ]);
@@ -448,7 +448,7 @@ impl TmuxClient {
         let output = self.run(&["set-hook", "-g", name, command]);
         if !output.ok() {
             eprintln!(
-                "opensessions: failed to install tmux hook {name}: status={} stderr={} command={command}",
+                "herdmux: failed to install tmux hook {name}: status={} stderr={} command={command}",
                 output.exit_code, output.stderr,
             );
         }
@@ -613,12 +613,12 @@ impl MuxProvider for TmuxProvider {
         ] {
             self.client.unset_global_hook(hook);
         }
-        self.client.unset_global_option("@opensessions_width");
+        self.client.unset_global_option("@herdmux_width");
     }
 
     fn set_sidebar_width_hint(&self, width: u16) {
         self.client
-            .set_global_option("@opensessions_width", &width.to_string());
+            .set_global_option("@herdmux_width", &width.to_string());
     }
 
     fn is_window_capable(&self) -> bool {
@@ -688,7 +688,7 @@ impl MuxProvider for TmuxProvider {
         panes
             .into_iter()
             .filter(|pane| {
-                pane.title == "opensessions-sidebar" && pane.session_name != STASH_SESSION
+                pane.title == "herdmux-sidebar" && pane.session_name != STASH_SESSION
             })
             .filter(|pane| seen_pane_ids.insert(pane.id.clone()))
             .map(|pane| SidebarPane {
@@ -707,7 +707,7 @@ impl MuxProvider for TmuxProvider {
         self.client
             .list_panes(PaneScope::Session(session_name))
             .into_iter()
-            .filter(|pane| pane.title != "opensessions-sidebar")
+            .filter(|pane| pane.title != "herdmux-sidebar")
             .filter_map(|pane| {
                 agent_from_pane(&pane, processes.as_deref()).map(|agent| (pane, agent))
             })
@@ -760,7 +760,7 @@ impl MuxProvider for TmuxProvider {
         self.client
             .list_panes(PaneScope::All)
             .into_iter()
-            .filter(|pane| pane.title != "opensessions-sidebar")
+            .filter(|pane| pane.title != "herdmux-sidebar")
             .map(|pane| (pane.tty, pane.id, pane.session_name))
             .collect()
     }
@@ -789,7 +789,7 @@ impl MuxProvider for TmuxProvider {
             .client
             .list_panes(PaneScope::Session(session))
             .into_iter()
-            .filter(|pane| pane.title != "opensessions-sidebar")
+            .filter(|pane| pane.title != "herdmux-sidebar")
             .filter(|pane| agent_from_pane(pane, processes.as_deref()).as_deref() == Some(agent))
             .collect::<Vec<_>>();
 
@@ -834,7 +834,7 @@ impl MuxProvider for TmuxProvider {
             *window_pane_counts
                 .entry(pane.window_id.clone())
                 .or_insert(0) += 1;
-            if pane.title == "opensessions-sidebar" {
+            if pane.title == "herdmux-sidebar" {
                 sidebars_by_window
                     .entry(pane.window_id)
                     .or_default()
@@ -879,12 +879,12 @@ impl MuxProvider for TmuxProvider {
             SidebarPosition::Left => panes.iter().min_by_key(|pane| pane.left),
             SidebarPosition::Right => panes.iter().max_by_key(|pane| pane.right),
         }?;
-        // Resolve the script path against `$OPENSESSIONS_DIR` so the spawned
+        // Resolve the script path against `$HERDMUX_DIR` so the spawned
         // pane works even when the parent pane's cwd is unrelated to the
         // workspace (e.g. tmux sessions whose default cwd is `$HOME`). Falls
         // back to the literal path if the env is unset.
         let command = format!(
-            "OPENSESSIONS_SESSION_NAME={} OPENSESSIONS_WINDOW_ID={window_id} REFOCUS_WINDOW={window_id} exec \"${{OPENSESSIONS_DIR:-.}}\"/{scripts_dir}/start.sh",
+            "HERDMUX_SESSION_NAME={} HERDMUX_WINDOW_ID={window_id} REFOCUS_WINDOW={window_id} exec \"${{HERDMUX_DIR:-.}}\"/{scripts_dir}/start.sh",
             target.session_name,
         );
         let new_pane = self.client.split_sidebar_pane(
@@ -894,7 +894,7 @@ impl MuxProvider for TmuxProvider {
             &command,
         )?;
         self.client
-            .set_pane_title(&new_pane.id, "opensessions-sidebar");
+            .set_pane_title(&new_pane.id, "herdmux-sidebar");
         self.client.set_window_remain_on_exit(window_id, true);
         Some(new_pane.id)
     }
@@ -917,7 +917,7 @@ fn client_format() -> &'static str {
 }
 
 fn pane_format() -> &'static str {
-    "#{pane_id}\t#{session_name}\t#{window_id}\t#{window_index}\t#{pane_index}\t#{pane_active}\t#{pane_tty}\t#{pane_pid}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_title}\t#{pane_width}\t#{pane_height}\t#{pane_left}\t#{pane_right}\t#{@opensessions_state}"
+    "#{pane_id}\t#{session_name}\t#{window_id}\t#{window_index}\t#{pane_index}\t#{pane_active}\t#{pane_tty}\t#{pane_pid}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_title}\t#{pane_width}\t#{pane_height}\t#{pane_left}\t#{pane_right}\t#{@herdmux_state}"
 }
 
 fn resolve_candidate_pane(
@@ -978,7 +978,7 @@ fn agent_from_pane_hints(pane: &PaneInfo) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Hook-set `@opensessions_state` is authoritative; the ai-sessions
+/// Hook-set `@herdmux_state` is authoritative; the ai-sessions
 /// binding is only a fallback for panes whose agent has no hooks.
 fn pane_needs_input(agent_state: &str, binding_needs_input: bool) -> bool {
     match agent_state {
@@ -1130,7 +1130,7 @@ mod tests {
             self.calls.lock().unwrap().push(args.to_vec());
             CommandOutput {
                 exit_code: 0,
-                stdout: "/dev/ttys001\topensessions\t@0\t%186".to_string(),
+                stdout: "/dev/ttys001\therdmux\t@0\t%186".to_string(),
                 stderr: String::new(),
             }
         }
@@ -1287,7 +1287,7 @@ mod tests {
             .expect("client focus");
 
         assert_eq!(focus.client_tty.as_deref(), Some("/dev/ttys001"));
-        assert_eq!(focus.session_name, "opensessions");
+        assert_eq!(focus.session_name, "herdmux");
         assert_eq!(focus.window_id, "@0");
         assert_eq!(focus.pane_id, "%186");
         assert_eq!(

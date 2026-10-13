@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# opensessions.tmux — TPM entry point
+# herdmux.tmux — TPM entry point
 # Registers keybindings and bootstraps the TUI if needed.
 #
 # Install:
-#   1. Add to .tmux.conf:  set -g @plugin 'Ataraxy-Labs/opensessions'
+#   1. Add to .tmux.conf:  set -g @plugin 'AfreedHassan/herdmux'
 #   2. Press prefix + I to install
 #   3. Prebuilt release binaries are downloaded automatically on first load
 #
@@ -14,10 +14,10 @@
 #   prefix + o → 1-9 — switch to visible session by index
 #
 # Options (set before TPM init):
-#   @opensessions-prefix-key        "o"  — prefix + key to enter opensessions command table
-#   @opensessions-focus-global-key  ""   — optional no-prefix key to reveal and focus sidebar
-#   @opensessions-index-keys        ""   — optional no-prefix keys mapped to visible sessions 1..9
-#   @opensessions-width             deprecated — use config.json sidebarWidth or the in-sidebar width slider
+#   @herdmux-prefix-key        "o"  — prefix + key to enter herdmux command table
+#   @herdmux-focus-global-key  ""   — optional no-prefix key to reveal and focus sidebar
+#   @herdmux-index-keys        ""   — optional no-prefix keys mapped to visible sessions 1..9
+#   @herdmux-width             deprecated — use config.json sidebarWidth or the in-sidebar width slider
 
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="$CURRENT_DIR/integrations/tmux-plugin/scripts"
@@ -25,11 +25,11 @@ SCRIPT_DIR="$SCRIPTS_DIR"
 
 # TPM installs from GitHub source, so fetch the matching release binaries instead
 # of asking users to build Rust locally. Local/dev checkouts can set
-# OPENSESSIONS_SKIP_BINARY_DOWNLOAD=1 and use target/{debug,release}.
+# HERDMUX_SKIP_BINARY_DOWNLOAD=1 and use target/{debug,release}.
 PACKAGE_VERSION="$(grep -o '"version": *"[^"]*"' "$CURRENT_DIR/package.json" 2>/dev/null | head -1 | cut -d'"' -f4)"
-BIN_VERSION="$(cat "$CURRENT_DIR/bin/.opensessions-version" 2>/dev/null || true)"
-if [ ! -x "$CURRENT_DIR/bin/opensessions-sidebar" ] || [ ! -x "$CURRENT_DIR/bin/opensessions-server" ] || [ ! -x "$CURRENT_DIR/bin/lazydiff" ] || [ "$BIN_VERSION" != "$PACKAGE_VERSION" ]; then
-  sh "$SCRIPTS_DIR/install-binaries.sh" "$CURRENT_DIR" >/tmp/opensessions-install.log 2>&1 || true
+BIN_VERSION="$(cat "$CURRENT_DIR/bin/.herdmux-version" 2>/dev/null || true)"
+if [ ! -x "$CURRENT_DIR/bin/herdmux-sidebar" ] || [ ! -x "$CURRENT_DIR/bin/herdmux-server" ] || [ ! -x "$CURRENT_DIR/bin/lazydiff" ] || [ "$BIN_VERSION" != "$PACKAGE_VERSION" ]; then
+  sh "$SCRIPTS_DIR/install-binaries.sh" "$CURRENT_DIR" >/tmp/herdmux-install.log 2>&1 || true
 fi
 
 . "$SCRIPTS_DIR/server-common.sh"
@@ -44,10 +44,10 @@ get_option() {
   echo "${value:-$default}"
 }
 
-PREFIX_KEY=$(get_option "@opensessions-prefix-key" "o")
-FOCUS_GLOBAL_KEY=$(get_option "@opensessions-focus-global-key" "")
-INDEX_KEYS=$(get_option "@opensessions-index-keys" "")
-COMMAND_TABLE="opensessions"
+PREFIX_KEY=$(get_option "@herdmux-prefix-key" "o")
+FOCUS_GLOBAL_KEY=$(get_option "@herdmux-focus-global-key" "")
+INDEX_KEYS=$(get_option "@herdmux-index-keys" "")
+COMMAND_TABLE="herdmux"
 
 bind_global_key() {
   local key="$1"
@@ -67,8 +67,8 @@ bind_global_index_keys() {
 }
 
 # Export so scripts can read them
-tmux set-environment -g OPENSESSIONS_DIR "$CURRENT_DIR"
-tmux set-environment -gu OPENSESSIONS_WIDTH 2>/dev/null || true
+tmux set-environment -g HERDMUX_DIR "$CURRENT_DIR"
+tmux set-environment -gu HERDMUX_WIDTH 2>/dev/null || true
 
 # --- Bootstrap: kill stale server if version or install path changed ---
 VERSION_FILE="${PID_FILE%.pid}.version"
