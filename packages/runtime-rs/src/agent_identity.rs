@@ -263,7 +263,12 @@ fn scan(home: &Path, cursors: &mut HashMap<PathBuf, TranscriptCursor>) -> io::Re
                     path.file_name().and_then(|name| name.to_str())
                         == Some(&format!("{}.jsonl", record.id))
                 })
-                .map(|path| transcript_title(path, cursors))
+                .map(|path| match transcript_title(path, cursors) {
+                    // Session bindings can outlive deleted transcripts. Their
+                    // optional titles must not block status updates for all agents.
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+                    result => result,
+                })
                 .transpose()?
                 .flatten()
         } else {
@@ -336,6 +341,92 @@ impl AgentIdentityCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    struct TestHome(PathBuf);
+
+    impl TestHome {
+        fn new() -> Self {
+            static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "herdmux-identity-{}-{}",
+                std::process::id(),
+                NEXT_ID.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(path.join(".ai/sessions")).unwrap();
+            Self(path)
+        }
+
+        fn binding(&self, tool: &str, id: &str, pane: &str, status: &str) {
+            let record = serde_json::json!({
+                "tool": tool,
+                "id": id,
+                "pane": pane,
+                "status": status,
+                "title": format!("Binding {id}"),
+                "transcript": self.0.join(format!("{id}.jsonl")).to_str().unwrap(),
+            });
+            fs::write(
+                self.0.join(format!(".ai/sessions/{tool}-{id}.json")),
+                serde_json::to_vec(&record).unwrap(),
+            )
+            .unwrap();
+        }
+    }
+
+    impl Drop for TestHome {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+
+    #[test]
+    fn missing_transcript_does_not_block_initial_status_snapshot() {
+        let home = TestHome::new();
+        home.binding("claude", "missing", "%1", "needs_input");
+        home.binding("codex", "active", "%2", "working");
+        let cache = AgentIdentityCache::new(home.0.clone(), Duration::ZERO);
+
+        let identities = cache.snapshot();
+
+        let claude = &identities[&("claude-code".to_string(), "%1".to_string())];
+        assert!(claude.needs_input);
+        assert!(!claude.working);
+        assert_eq!(claude.title.as_deref(), Some("Binding missing"));
+        assert!(identities[&("codex".to_string(), "%2".to_string())].working);
+    }
+
+    #[test]
+    fn missing_transcript_does_not_freeze_cached_status_updates() {
+        let home = TestHome::new();
+        home.binding("claude", "live", "%1", "working");
+        home.binding("codex", "active", "%2", "idle");
+        fs::write(
+            home.0.join("live.jsonl"),
+            r#"{"type":"custom-title","customTitle":"Native live title"}"#,
+        )
+        .unwrap();
+        let cache = AgentIdentityCache::new(home.0.clone(), Duration::ZERO);
+        let before = cache.snapshot();
+        assert!(before[&("claude-code".to_string(), "%1".to_string())].working);
+
+        home.binding("claude", "missing", "%3", "idle");
+        home.binding("claude", "live", "%1", "needs_input");
+        home.binding("codex", "active", "%2", "working");
+        let after = cache.snapshot();
+
+        let live = &after[&("claude-code".to_string(), "%1".to_string())];
+        assert!(live.needs_input);
+        assert!(!live.working);
+        assert_eq!(live.title.as_deref(), Some("Native live title"));
+        assert!(after[&("codex".to_string(), "%2".to_string())].working);
+        assert_eq!(
+            after[&("claude-code".to_string(), "%3".to_string())]
+                .title
+                .as_deref(),
+            Some("Binding missing")
+        );
+    }
 
     #[test]
     fn binding_parser_uses_only_identity_and_title_fields() {
