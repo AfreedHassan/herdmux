@@ -3426,10 +3426,21 @@ async fn handle_connection(
         }
     }
 
-    stream
-        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 19\r\n\r\nherdmux server")
-        .await?;
+    stream.write_all(&health_response()).await?;
     Ok(())
+}
+
+const HEALTH_BODY: &str = "herdmux server";
+
+/// Plain-text health response. The length is derived from the body so a
+/// rename can't leave a stale Content-Length (curl exits 18 on a short body,
+/// which makes `server_alive` in server-common.sh report the server as down).
+fn health_response() -> Vec<u8> {
+    format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{HEALTH_BODY}",
+        HEALTH_BODY.len()
+    )
+    .into_bytes()
 }
 
 fn app_from_state_json(state_json: &str) -> Option<SidebarApp> {
@@ -4235,5 +4246,24 @@ mod agent_presence_tests {
                 .get_agents("work")
                 .is_empty()
         );
+    }
+}
+
+#[cfg(test)]
+mod health_response_tests {
+    use super::*;
+
+    #[test]
+    fn content_length_matches_body() {
+        let response = String::from_utf8(health_response()).unwrap();
+        let (head, body) = response.split_once("\r\n\r\n").unwrap();
+        let declared: usize = head
+            .lines()
+            .find_map(|line| line.strip_prefix("Content-Length: "))
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert_eq!(declared, body.len());
+        assert_eq!(body, "herdmux server");
     }
 }
